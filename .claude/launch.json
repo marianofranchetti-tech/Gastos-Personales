@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "expo-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--web"],
+      "port": 8081
+    },
+    {
+      "name": "bello-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "C:/Users/Administrador/Desktop/bello-export-web", "-p", "4599", "-c-1"],
+      "port": 4599
+    }
+  ]
+}
