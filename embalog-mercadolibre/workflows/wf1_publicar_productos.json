@@ -1,0 +1,267 @@
+{
+  "name": "WF1 - Publicar productos Odoo -> ML",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trg-manual",
+      "name": "Disparador manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-620, 300]
+    },
+    {
+      "parameters": {
+        "notice": "Cron listo para el futuro: al pasar a automatico, reemplazar el disparador manual por un Schedule Trigger. Por ahora se corre a mano."
+      },
+      "id": "note-cron",
+      "name": "Nota: preparado para cron",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-640, 120]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "REEMPLAZAR_ID_WF0",
+        "options": {}
+      },
+      "id": "exec-auth",
+      "name": "Obtener token ML",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [-420, 300]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.template",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "filter": [
+            { "fieldName": "x_studio_publicar_ml", "operator": "equal", "value": "true" }
+          ]
+        },
+        "options": {
+          "fieldsList": [
+            "id", "name", "list_price", "qty_available",
+            "x_studio_ml_item_id", "x_studio_ml_category_id", "x_studio_ml_attributes"
+          ]
+        }
+      },
+      "id": "odoo-read",
+      "name": "Leer productos (x_publicar_ml)",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [-200, 300],
+      "credentials": {
+        "odooApi": {
+          "id": "REEMPLAZAR_CRED_ODOO",
+          "name": "Embalog Odoo"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "notice": "Tras importar: abrir este nodo, elegir la credencial 'Embalog Odoo', y verificar en la UI el filtro (x_studio_publicar_ml = true) y los campos a traer. El nodo Odoo habla JSON-RPC por debajo."
+      },
+      "id": "note-odoo",
+      "name": "Nota: configurar nodo Odoo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-220, 120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "f1",
+              "leftValue": "={{ $json.x_studio_ml_item_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "empty", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "filter-new",
+      "name": "Solo sin publicar",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [20, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Por producto",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.mercadolibre.com/sites/MLA/domain_discovery/search?limit=1&q={{ encodeURIComponent($json.name) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Obtener token ML').item.json.access_token }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-cat",
+      "name": "Predecir categoria",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Arma el payload de item para POST /items (MLA).\n// Fuente: producto de Odoo (nodo 'Por producto') + prediccion de categoria.\nconst prod = $('Por producto').item.json;\nconst pred = Array.isArray($json) ? $json[0] : $json; // domain_discovery devuelve un array\n\n// --- URL base publica de Odoo para exponer la imagen del producto ---\nconst ODOO_BASE = 'https://embalog-packaging.odoo.com';\n\n// --- Titulo: maximo 60 caracteres, corte por palabra ---\nfunction truncarTitulo(txt, max = 60) {\n  txt = String(txt || '').trim();\n  if (txt.length <= max) return txt;\n  const cortado = txt.slice(0, max);\n  const ultimoEspacio = cortado.lastIndexOf(' ');\n  return (ultimoEspacio > 30 ? cortado.slice(0, ultimoEspacio) : cortado).trim();\n}\n\n// --- Categoria: prioridad al override manual de Odoo (x_studio_ml_category_id) ---\nconst categoryId = (prod.x_studio_ml_category_id && String(prod.x_studio_ml_category_id).trim())\n  ? String(prod.x_studio_ml_category_id).trim()\n  : (pred && pred.category_id ? pred.category_id : null);\n\nif (!categoryId) {\n  throw new Error('No se pudo resolver category_id (ni override ni prediccion) para: ' + prod.name);\n}\n\n// --- Atributos requeridos: se cargan a mano en Odoo como JSON en x_studio_ml_attributes ---\n// Formato esperado: [{\"id\":\"BRAND\",\"value_name\":\"Embalog\"}, {\"id\":\"...\",\"value_name\":\"...\"}]\nlet attributes = [];\nif (prod.x_studio_ml_attributes && String(prod.x_studio_ml_attributes).trim()) {\n  try {\n    attributes = JSON.parse(prod.x_studio_ml_attributes);\n  } catch (e) {\n    throw new Error('x_studio_ml_attributes no es JSON valido para: ' + prod.name);\n  }\n}\n\n// --- Stock: ML exige entero >= 1 para publicar ---\nconst stock = Math.max(0, Math.floor(Number(prod.qty_available || 0)));\nif (stock < 1) {\n  throw new Error('Sin stock (qty_available < 1), no se publica: ' + prod.name);\n}\n\nconst precio = Number(prod.list_price || 0);\nif (precio <= 0) {\n  throw new Error('Precio invalido (list_price <= 0) para: ' + prod.name);\n}\n\nconst payload = {\n  family_name: truncarTitulo(prod.name),\n  category_id: categoryId,\n  price: Math.round(precio * 1.21 * 100) / 100, // list_price de Odoo es SIN IVA; ML muestra el precio final con IVA 21%\n  currency_id: 'ARS',\n  available_quantity: stock,\n  buying_mode: 'buy_it_now',\n  listing_type_id: 'gold_special', // Clasica\n  condition: 'new',\n  // Imagen publica de Odoo (ver README: la imagen debe ser accesible sin login)\n  pictures: [\n    { source: `${ODOO_BASE}/web/image/product.template/${prod.id}/image_1920` }\n  ],\n  sale_terms: [\n    { id: 'WARRANTY_TYPE', value_name: 'Garantia del vendedor' },\n    { id: 'WARRANTY_TIME', value_name: '90 dias' }\n  ],\n  attributes: attributes\n};\n\nreturn [{ json: { odoo_id: prod.id, odoo_name: prod.name, payload } }];"
+      },
+      "id": "code-build",
+      "name": "Armar item ML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.mercadolibre.com/items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Obtener token ML').item.json.access_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": { "response": { "response": { "neverError": true, "responseFormat": "json" } } }
+      },
+      "id": "http-publish",
+      "name": "Publicar item en ML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "ok1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-ok",
+      "name": "¿Publicado OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.template",
+        "operation": "update",
+        "customResourceId": "={{ $('Armar item ML').item.json.odoo_id }}",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "x_studio_ml_item_id", "fieldValue": "={{ $json.id }}" }
+          ]
+        }
+      },
+      "id": "odoo-write",
+      "name": "Guardar x_studio_ml_item_id en Odoo",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [1360, 200],
+      "credentials": {
+        "odooApi": {
+          "id": "REEMPLAZAR_CRED_ODOO",
+          "name": "Embalog Odoo"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ml_publish_log",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "odoo_id", "fieldValue": "={{ $('Armar item ML').item.json.odoo_id || $('Por producto').item.json.id }}" },
+            { "fieldId": "title", "fieldValue": "={{ $('Por producto').item.json.name }}" },
+            { "fieldId": "status", "fieldValue": "error" },
+            { "fieldId": "error", "fieldValue": "={{ JSON.stringify($json).slice(0, 1000) }}" }
+          ]
+        }
+      },
+      "id": "sb-log",
+      "name": "Loguear error",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1360, 400],
+      "credentials": {
+        "supabaseApi": {
+          "id": "REEMPLAZAR_CRED_SUPABASE",
+          "name": "Embalog Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "notice": "El batch NO se aborta ante un error: los nodos ML/Code usan onError=continue y los rechazos de ML se loguean en ml_publish_log. El loop sigue con el siguiente producto."
+      },
+      "id": "note-err",
+      "name": "Nota: errores no abortan",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1340, 560]
+    }
+  ],
+  "connections": {
+    "Disparador manual": { "main": [[{ "node": "Obtener token ML", "type": "main", "index": 0 }]] },
+    "Obtener token ML": { "main": [[{ "node": "Leer productos (x_publicar_ml)", "type": "main", "index": 0 }]] },
+    "Leer productos (x_publicar_ml)": { "main": [[{ "node": "Solo sin publicar", "type": "main", "index": 0 }]] },
+    "Solo sin publicar": { "main": [[{ "node": "Por producto", "type": "main", "index": 0 }]] },
+    "Por producto": {
+      "main": [
+        [],
+        [{ "node": "Predecir categoria", "type": "main", "index": 0 }]
+      ]
+    },
+    "Predecir categoria": { "main": [[{ "node": "Armar item ML", "type": "main", "index": 0 }]] },
+    "Armar item ML": { "main": [[{ "node": "Publicar item en ML", "type": "main", "index": 0 }]] },
+    "Publicar item en ML": { "main": [[{ "node": "¿Publicado OK?", "type": "main", "index": 0 }]] },
+    "¿Publicado OK?": {
+      "main": [
+        [{ "node": "Guardar x_studio_ml_item_id en Odoo", "type": "main", "index": 0 }],
+        [{ "node": "Loguear error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Guardar x_studio_ml_item_id en Odoo": { "main": [[{ "node": "Por producto", "type": "main", "index": 0 }]] },
+    "Loguear error": { "main": [[{ "node": "Por producto", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

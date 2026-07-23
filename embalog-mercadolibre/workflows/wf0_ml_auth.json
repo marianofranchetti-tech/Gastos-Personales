@@ -1,0 +1,179 @@
+{
+  "name": "WF0 - ML Auth (obtener access_token vigente)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trg-wf0",
+      "name": "Inicio (llamado por otro workflow)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-360, 300]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "ml_config",
+        "id": "1"
+      },
+      "id": "sb-getcfg",
+      "name": "Leer config ML (Supabase)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-140, 300],
+      "credentials": {
+        "supabaseApi": {
+          "id": "REEMPLAZAR_CRED_SUPABASE",
+          "name": "Embalog Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decide si hay que refrescar el access_token.\n// El token de ML dura 6 h; refrescamos con 10 min de margen.\nconst cfg = $json;\nconst ahora = Date.now();\n// expires_at se guarda como epoch en milisegundos (ver nodo 'Guardar tokens').\nconst venceEn = Number(cfg.expires_at || 0);\nconst margenMs = 10 * 60 * 1000; // 10 minutos\nconst necesitaRefresh = !cfg.access_token || (venceEn - ahora) < margenMs;\n\nreturn [{\n  json: {\n    ...cfg,\n    necesitaRefresh\n  }\n}];"
+      },
+      "id": "code-check",
+      "name": "¿Token vigente?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [80, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.necesitaRefresh }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        }
+      },
+      "id": "if-refresh",
+      "name": "¿Refrescar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.mercadolibre.com/oauth/token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "accept", "value": "application/json" },
+            { "name": "content-type", "value": "application/x-www-form-urlencoded" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "grant_type", "value": "refresh_token" },
+            { "name": "client_id", "value": "={{ $('Leer config ML (Supabase)').item.json.client_id }}" },
+            { "name": "client_secret", "value": "={{ $('Leer config ML (Supabase)').item.json.client_secret }}" },
+            { "name": "refresh_token", "value": "={{ $('Leer config ML (Supabase)').item.json.refresh_token }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-refresh",
+      "name": "Refrescar token ML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// El refresh devuelve access_token, refresh_token NUEVO (el viejo queda inutilizado)\n// y expires_in en segundos (21600 = 6 h). Calculamos el epoch de vencimiento.\nconst r = $json;\nconst expiresInSeg = Number(r.expires_in || 21600);\nconst expiresAt = Date.now() + expiresInSeg * 1000;\nreturn [{\n  json: {\n    access_token: r.access_token,\n    refresh_token: r.refresh_token, // OJO: single-use, hay que persistir el nuevo\n    expires_at: expiresAt\n  }\n}];"
+      },
+      "id": "code-parse",
+      "name": "Parsear tokens nuevos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 200]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "ml_config",
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            { "keyName": "id", "condition": "eq", "keyValue": "1" }
+          ]
+        },
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "access_token", "fieldValue": "={{ $json.access_token }}" },
+            { "fieldId": "refresh_token", "fieldValue": "={{ $json.refresh_token }}" },
+            { "fieldId": "expires_at", "fieldValue": "={{ $json.expires_at }}" }
+          ]
+        }
+      },
+      "id": "sb-save",
+      "name": "Guardar tokens (Supabase)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [980, 200],
+      "credentials": {
+        "supabaseApi": {
+          "id": "REEMPLAZAR_CRED_SUPABASE",
+          "name": "Embalog Supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "access_token", "value": "={{ $('Parsear tokens nuevos').item.json.access_token }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-out-refresh",
+      "name": "Salida (refrescado)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "access_token", "value": "={{ $('Leer config ML (Supabase)').item.json.access_token }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-out-valid",
+      "name": "Salida (vigente)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [540, 420]
+    }
+  ],
+  "connections": {
+    "Inicio (llamado por otro workflow)": { "main": [[{ "node": "Leer config ML (Supabase)", "type": "main", "index": 0 }]] },
+    "Leer config ML (Supabase)": { "main": [[{ "node": "¿Token vigente?", "type": "main", "index": 0 }]] },
+    "¿Token vigente?": { "main": [[{ "node": "¿Refrescar?", "type": "main", "index": 0 }]] },
+    "¿Refrescar?": {
+      "main": [
+        [{ "node": "Refrescar token ML", "type": "main", "index": 0 }],
+        [{ "node": "Salida (vigente)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Refrescar token ML": { "main": [[{ "node": "Parsear tokens nuevos", "type": "main", "index": 0 }]] },
+    "Parsear tokens nuevos": { "main": [[{ "node": "Guardar tokens (Supabase)", "type": "main", "index": 0 }]] },
+    "Guardar tokens (Supabase)": { "main": [[{ "node": "Salida (refrescado)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

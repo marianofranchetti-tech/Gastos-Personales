@@ -1,0 +1,123 @@
+{
+  "name": "TEMP - Cargar stock inicial packs ML (borrar despues de usar)",
+  "nodes": [
+    {
+      "parameters": {
+        "notice": "USO UNICO v4: la ubicacion se obtiene de stock.warehouse.lot_stock_id (WH/Stock real, interna), NO de un quant de referencia (v3 tomo una ubicacion virtual y el on-hand quedo en 0). Resuelve product_variant_id (stock.quant usa el ID de variante) y crea el quant con quantity en la ubicacion interna. Ejecutar UNA sola vez y despues borrar. Nota: v3 dejo 18 quants basura (ids ~1138-1155) en una ubicacion virtual; no afectan el on-hand, se pueden ignorar o limpiar despues."
+      },
+      "id": "note-temp",
+      "name": "Nota: uso unico",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, 40]
+    },
+    {
+      "parameters": {},
+      "id": "t",
+      "name": "Disparador manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 340]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "stock.warehouse",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 1,
+        "options": { "fieldsList": ["id", "name", "lot_stock_id"] }
+      },
+      "id": "wh",
+      "name": "Deposito (WH/Stock)",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [200, 200],
+      "credentials": {
+        "odooApi": { "id": "V9mB0OkGtAEoZTJ2", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lista de [id_plantilla, cantidad] a cargar, segun lo informado por Mariano.\nconst STOCK = [\n  [1005, 15], // Caja Cinta 48x90 x36\n  [1007, 2],  // Cinta 24mm Pack 36\n  [1009, 18], // Film Alimenticio x1\n  [1010, 4],  // Film Automatico 7.5kg\n  [1011, 4],  // Film Negro mini Pack 10\n  [1012, 4],  // Film Negro c/Mango 2.8kg\n  [1013, 4],  // Film Negro c/Mango 4kg\n  [1014, 4],  // Film Negro s/Mango Pack4 (bandera)\n  [1015, 4],  // Film Negro s/Mango 4.5kg\n  [1016, 4],  // Film Negro s/Mango 5kg\n  [1017, 4],  // Film Transp mini Pack 10\n  [1018, 4],  // Film Transp c/Mango 2.8kg\n  [1019, 4],  // Film Transp c/Mango 4kg\n  [1020, 4],  // Film Transp s/Mango 4kg\n  [1021, 4],  // Film Transp s/Mango 4.5kg\n  [1022, 4],  // Film Transp s/Mango 5kg\n  [1023, 4]   // Film Transp s/Mango Pack4 (bandera)\n  // 1008 (Cinta Papel Pack4) queda AFUERA: stock 0, no se carga.\n];\nreturn STOCK.map(([templateId, qty]) => ({ json: { templateId, qty } }));"
+      },
+      "id": "plan",
+      "name": "Plan de stock",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 440]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.template",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 1,
+        "filters": {
+          "filter": [
+            { "fieldName": "id", "operator": "equal", "value": "={{ $json.templateId }}" }
+          ]
+        },
+        "options": { "fieldsList": ["id", "product_variant_id", "name"] }
+      },
+      "id": "variant",
+      "name": "Resolver variante (product.product)",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [420, 440],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": { "id": "V9mB0OkGtAEoZTJ2", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Combina el id de variante real + la ubicacion interna del deposito + la cantidad del plan.\nconst variant = $json;\nconst plan = $('Plan de stock').item.json;\nconst locField = $('Deposito (WH/Stock)').first().json.lot_stock_id;\nconst locationId = Array.isArray(locField) ? locField[0] : locField;\nif (!locationId) throw new Error('No se pudo obtener lot_stock_id del deposito.');\n\nconst variantField = variant.product_variant_id;\nconst variantId = Array.isArray(variantField) ? variantField[0] : variantField;\nif (!variantId) {\n  throw new Error('No se pudo resolver product_variant_id para template ' + plan.templateId + ' (' + (variant.name||'') + ')');\n}\nreturn { json: { productId: variantId, qty: plan.qty, locationId, templateId: plan.templateId, nombre: variant.name } };"
+      },
+      "id": "merge",
+      "name": "Armar item quant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 440],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "stock.quant",
+        "operation": "create",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "product_id", "fieldValue": "={{ $json.productId }}" },
+            { "fieldName": "location_id", "fieldValue": "={{ $json.locationId }}" },
+            { "fieldName": "quantity", "fieldValue": "={{ $json.qty }}" }
+          ]
+        }
+      },
+      "id": "cre",
+      "name": "Crear quant",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [860, 440],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": { "id": "V9mB0OkGtAEoZTJ2", "name": "Odoo account" }
+      }
+    }
+  ],
+  "connections": {
+    "Disparador manual": {
+      "main": [[
+        { "node": "Deposito (WH/Stock)", "type": "main", "index": 0 },
+        { "node": "Plan de stock", "type": "main", "index": 0 }
+      ]]
+    },
+    "Plan de stock": { "main": [[{ "node": "Resolver variante (product.product)", "type": "main", "index": 0 }]] },
+    "Resolver variante (product.product)": { "main": [[{ "node": "Armar item quant", "type": "main", "index": 0 }]] },
+    "Armar item quant": { "main": [[{ "node": "Crear quant", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

@@ -1,0 +1,113 @@
+{
+  "name": "TEMP - Aplicar plan hibrido (borrar despues de usar)",
+  "nodes": [
+    {
+      "parameters": {
+        "notice": "USO UNICO: actualiza precio (los 18 productos) y nombre+atributos (los 15 que cambian de formato) segun el plan hibrido acordado con Mariano el 17-jul-2026. Ejecutar UNA sola vez y despues borrar este workflow."
+      },
+      "id": "note-temp",
+      "name": "Nota: uso unico",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-20, 80]
+    },
+    {
+      "parameters": {},
+      "id": "t",
+      "name": "Disparador manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Plan hibrido: bobinas/packs chicos <$40k (comprador paga envio) + 2 banderas grandes con envio gratis.\n// precio = precio final publicado / 1.21 (neto para Odoo)\nconst A = (m) => JSON.stringify([\n  {id:'BRAND',value_name:'Embalog'},{id:'MODEL',value_name:m},\n  {id:'VALUE_ADDED_TAX',value_name:'21%'},{id:'IMPORT_DUTY',value_name:'0%'}\n]);\nconst PLAN = [\n  [1005, null, 75500, null], // Caja cinta x36 (bandera A - ya en ML)\n  [1007, 'Cinta Embalaje Transparente 24mm x 45m Pack 36 Unidades', 30900, '24mm x 45m x36'],\n  [1008, 'Cinta De Papel Rapifix 48 Mm X 50 Mts Pack 4 Unidades', 33900, '48mm x 50m x4'],\n  [1009, 'Film Alimenticio 45 Cm X 600 Mts', 29000, '45cm x 600m'],\n  [1010, 'Film Stretch Automatico 50 Cm Bobina 7.5 Kg', 39500, '7.5 Kg'],\n  [1011, 'Film Stretch Negro 10 Cm 0.5 Kg Pack 10 Unidades', 37900, '0.5 Kg x 10'],\n  [1012, 'Film Stretch Negro Con Mango Bobina 2.8 Kg', 17900, '2.8 Kg'],\n  [1013, 'Film Stretch Negro Con Mango Bobina 4 Kg', 25900, '4 Kg'],\n  [1014, null, 85000, null], // Film negro sin mango 3.5kg pack4 (bandera B)\n  [1015, 'Film Stretch Negro Sin Mango Bobina 4.5 Kg', 26900, '4.5 Kg'],\n  [1016, 'Film Stretch Negro Sin Mango Bobina 5 Kg', 29900, '5 Kg'],\n  [1017, 'Film Stretch Transparente 10 Cm 0.5 Kg Pack 10 Unidades', 36900, '0.5 Kg x 10'],\n  [1018, 'Film Stretch Transparente Con Mango Bobina 2.8 Kg', 17500, '2.8 Kg'],\n  [1019, 'Film Stretch Transparente Con Mango Bobina 4 Kg', 24900, '4 Kg'],\n  [1020, 'Film Stretch Transparente Sin Mango Bobina 4 Kg', 21900, '4 Kg'],\n  [1021, 'Film Stretch Transparente Sin Mango Bobina 4.5 Kg', 24900, '4.5 Kg'],\n  [1022, 'Film Stretch Transparente Sin Mango Bobina 5 Kg', 26900, '5 Kg'],\n  [1023, null, 81000, null] // Film transp sin mango 3.5kg pack4 (bandera C)\n];\nreturn PLAN.map(([id, nombre, precio, modelo]) => ({ json: {\n  id,\n  precio: Math.round(precio/1.21*100)/100,\n  nombre: nombre || '',\n  attrs: modelo ? A(modelo) : ''\n}}));"
+      },
+      "id": "c",
+      "name": "Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.template",
+        "operation": "update",
+        "customResourceId": "={{ $json.id }}",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "list_price", "fieldValue": "={{ $json.precio }}" }
+          ]
+        }
+      },
+      "id": "u1",
+      "name": "Actualizar precio",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [420, 200],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Plan').item.json.nombre }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if1",
+      "name": "¿Cambia nombre?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.template",
+        "operation": "update",
+        "customResourceId": "={{ $('Plan').item.json.id }}",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "name", "fieldValue": "={{ $('Plan').item.json.nombre }}" },
+            { "fieldName": "x_studio_ml_attributes", "fieldValue": "={{ $('Plan').item.json.attrs }}" }
+          ]
+        }
+      },
+      "id": "u2",
+      "name": "Actualizar nombre y attrs",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [860, 200],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    }
+  ],
+  "connections": {
+    "Disparador manual": { "main": [[{ "node": "Plan", "type": "main", "index": 0 }]] },
+    "Plan": { "main": [[{ "node": "Actualizar precio", "type": "main", "index": 0 }]] },
+    "Actualizar precio": { "main": [[{ "node": "¿Cambia nombre?", "type": "main", "index": 0 }]] },
+    "¿Cambia nombre?": {
+      "main": [
+        [{ "node": "Actualizar nombre y attrs", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

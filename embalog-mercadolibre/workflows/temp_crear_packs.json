@@ -1,0 +1,107 @@
+{
+  "name": "TEMP - Crear packs + cotizar envios (borrar despues de usar)",
+  "nodes": [
+    {
+      "parameters": {
+        "notice": "USO UNICO: crea los 17 productos pack en Odoo (con Publicar ML tildado y atributos cargados) y cotiza el envio real de Mercado Envios por peso. Ejecutar UNA sola vez y despues borrar este workflow. Si se ejecuta dos veces, crea los productos duplicados."
+      },
+      "id": "note-temp",
+      "name": "Nota: uso unico",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-20, 80]
+    },
+    {
+      "parameters": {},
+      "id": "t",
+      "name": "Disparador manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "wVAzrmGlYLKnQiJg",
+        "options": {}
+      },
+      "id": "tk",
+      "name": "Obtener token ML",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Los 17 productos pack segun la planilla de Mariano (16-jul-2026).\n// name = titulo que ve el cliente (bobinas/unidades, no kg)\n// precio = precio a publicar / 1.21 (neto para Odoo; WF1 le re-agrega el IVA)\n// attrs = atributos requeridos de ML precargados\nconst A = (m) => JSON.stringify([\n  {id:'BRAND',value_name:'Embalog'},{id:'MODEL',value_name:m},\n  {id:'VALUE_ADDED_TAX',value_name:'21%'},{id:'IMPORT_DUTY',value_name:'0%'}\n]);\nconst PACKS = [\n  ['Cinta Embalaje Transparente 24mm x 45m Pack 72 Unidades',45500,'24mm x 45m x72'],\n  ['Cinta De Papel Rapifix 48 Mm X 50 Mts Pack 18 Unidades',169500,'48mm x 50m x18'],\n  ['Film Alimenticio 45 Cm X 600 Mts Pack 4 Rollos',128000,'45cm x 600m x4'],\n  ['Film Stretch Automatico 50 Cm 7.5 Kg Pack 3 Bobinas',134500,'7.5 Kg x 3'],\n  ['Film Stretch Negro 10 Cm 0.5 Kg Pack 25 Unidades',92000,'0.5 Kg x 25'],\n  ['Film Stretch Negro Con Mango 2.8 Kg Pack 4 Bobinas',76000,'2.8 Kg x 4'],\n  ['Film Stretch Negro Con Mango 4 Kg Pack 4 Bobinas',111500,'4 Kg x 4'],\n  ['Film Stretch Negro Sin Mango 3.5 Kg Pack 4 Bobinas',65000,'3.5 Kg x 4'],\n  ['Film Stretch Negro Sin Mango 4.5 Kg Pack 4 Bobinas',92500,'4.5 Kg x 4'],\n  ['Film Stretch Negro Sin Mango 5 Kg Pack 4 Bobinas',114000,'5 Kg x 4'],\n  ['Film Stretch Transparente 10 Cm 0.5 Kg Pack 25 Unidades',87000,'0.5 Kg x 25'],\n  ['Film Stretch Transparente Con Mango 2.8 Kg Pack 4 Bobinas',71000,'2.8 Kg x 4'],\n  ['Film Stretch Transparente Con Mango 4 Kg Pack 4 Bobinas',104000,'4 Kg x 4'],\n  ['Film Stretch Transparente Sin Mango 4 Kg Pack 4 Bobinas',79000,'4 Kg x 4'],\n  ['Film Stretch Transparente Sin Mango 4.5 Kg Pack 4 Bobinas',92500,'4.5 Kg x 4'],\n  ['Film Stretch Transparente Sin Mango 5 Kg Pack 4 Bobinas',106500,'5 Kg x 4'],\n  ['Film Stretch Transparente Sin Mango 3.5 Kg Pack 4 Bobinas',65000,'3.5 Kg x 4']\n];\nreturn PACKS.map(([n,p,m]) => ({ json: {\n  name: n,\n  precio: Math.round(p/1.21*100)/100,\n  attrs: A(m)\n}}));"
+      },
+      "id": "cp",
+      "name": "Productos pack",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 180]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.template",
+        "operation": "create",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "name", "fieldValue": "={{ $json.name }}" },
+            { "fieldName": "list_price", "fieldValue": "={{ $json.precio }}" },
+            { "fieldName": "is_storable", "fieldValue": "={{ true }}" },
+            { "fieldName": "x_studio_publicar_ml", "fieldValue": "={{ true }}" },
+            { "fieldName": "x_studio_ml_attributes", "fieldValue": "={{ $json.attrs }}" }
+          ]
+        }
+      },
+      "id": "oc",
+      "name": "Crear producto Odoo",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [640, 180],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pesos de los packs (en gramos) para cotizar Mercado Envios.\n// Caja generica 30x40x50 cm. 7000g = la caja x36 de cinta ya publicada.\nconst pesos = [5000,7000,9000,12000,13000,14500,16500,18000,18500,20500,23000];\nreturn pesos.map(p => ({ json: { peso: p } }));"
+      },
+      "id": "cw",
+      "name": "Pesos a cotizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 420]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.mercadolibre.com/users/3536901554/shipping_options/free?dimensions=30x40x50,{{ $json.peso }}&verbose=true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Obtener token ML').item.json.access_token }}" }
+          ]
+        },
+        "options": { "response": { "response": { "neverError": true } } }
+      },
+      "id": "sh",
+      "name": "Cotizar envio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 420],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Disparador manual": { "main": [[{ "node": "Obtener token ML", "type": "main", "index": 0 }]] },
+    "Obtener token ML": { "main": [[{ "node": "Productos pack", "type": "main", "index": 0 }, { "node": "Pesos a cotizar", "type": "main", "index": 0 }]] },
+    "Productos pack": { "main": [[{ "node": "Crear producto Odoo", "type": "main", "index": 0 }]] },
+    "Pesos a cotizar": { "main": [[{ "node": "Cotizar envio", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

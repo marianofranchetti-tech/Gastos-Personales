@@ -1,0 +1,354 @@
+{
+  "name": "WF3 - Pedidos ML -> Odoo",
+  "nodes": [
+    {
+      "parameters": {
+        "notice": "REGISTRO EN ML: activar este workflow (toggle Active) y registrar en el DevCenter la URL de produccion del webhook: https://marianofran.app.n8n.cloud/webhook/ml-orders con el topico Orders. ML exige responder 200 en <500ms: este webhook responde al recibir, sin esperar el procesamiento."
+      },
+      "id": "note-reg",
+      "name": "Nota: registrar callback",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-900, 60]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ml-orders",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "wh-ml",
+      "name": "Webhook ML (orders_v2)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-880, 300],
+      "webhookId": "ml-orders-embalog"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "t1",
+              "leftValue": "={{ $json.body.topic }}",
+              "rightValue": "orders_v2",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-topic",
+      "name": "¿Es orders_v2?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// La notificacion de ML trae {\"resource\":\"/orders/123456789\",\"topic\":\"orders_v2\",...}\n// Extraemos el numero de orden para consultarla.\nconst body = $json.body || $json;\nconst resource = String(body.resource || '');\nconst m = resource.match(/\\/orders\\/(\\d+)/);\nif (!m) {\n  throw new Error('Notificacion sin order_id en resource: ' + JSON.stringify(body).slice(0, 200));\n}\nreturn [{ json: { order_id: m[1] } }];"
+      },
+      "id": "code-oid",
+      "name": "Extraer order_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-440, 200]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "wVAzrmGlYLKnQiJg",
+        "options": {}
+      },
+      "id": "exec-auth",
+      "name": "Obtener token ML",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [-220, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.mercadolibre.com/orders/{{ $('Extraer order_id').item.json.order_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Obtener token ML').item.json.access_token }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-order",
+      "name": "Traer orden de ML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza la orden de ML a los datos que necesita Odoo.\nconst o = $json;\nconst buyer = o.buyer || {};\n\n// La orden esta paga si el estado es 'paid' o algun pago quedo aprobado\nconst paga = o.status === 'paid' || (o.payments || []).some(p => p.status === 'approved');\n\n// Lineas: ML informa precio final CON IVA; Odoo usa precio neto -> dividimos por 1.21\nconst lineas = (o.order_items || []).map(it => ({\n  ml_item_id: it.item ? it.item.id : null,\n  titulo: it.item ? it.item.title : '',\n  cantidad: it.quantity,\n  precio_neto: Math.round((it.unit_price / 1.21) * 100) / 100\n}));\n\nconst nombre = [buyer.first_name, buyer.last_name].filter(Boolean).join(' ')\n  || buyer.nickname || ('Comprador ML ' + buyer.id);\n\nreturn [{ json: {\n  order_id: o.id,\n  origen: 'ML #' + o.id,\n  comprador_nombre: nombre,\n  comprador_ref: 'ML-' + buyer.id,      // clave para reencontrar al cliente\n  comprador_email: buyer.email || '',    // ML suele enmascarar el mail\n  paga: paga,\n  nota: 'Orden Mercado Libre #' + o.id\n      + ' | Estado ML: ' + o.status\n      + (paga ? ' | *** PAGADA: CONFIRMAR *** ' : ' | (no pagada aun)')\n      + ' | Total ML (c/IVA): ' + o.total_amount,\n  lineas: lineas\n}}];"
+      },
+      "id": "code-prep",
+      "name": "Preparar datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "sale.order",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "filter": [
+            { "fieldName": "origin", "operator": "equal", "value": "={{ $json.origen }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "odoo-dup",
+      "name": "Buscar orden existente",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [440, 200],
+      "alwaysOutputData": true,
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "d1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-dup",
+      "name": "¿Ya existe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {},
+      "id": "noop-dup",
+      "name": "Fin (orden duplicada)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [880, 80]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "res.partner",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "filter": [
+            { "fieldName": "ref", "operator": "equal", "value": "={{ $('Preparar datos').item.json.comprador_ref }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "odoo-findp",
+      "name": "Buscar cliente",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [880, 320],
+      "alwaysOutputData": true,
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "p1",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "if-partner",
+      "name": "¿Cliente existe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 320]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "res.partner",
+        "operation": "create",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "name", "fieldValue": "={{ $('Preparar datos').item.json.comprador_nombre }}" },
+            { "fieldName": "ref", "fieldValue": "={{ $('Preparar datos').item.json.comprador_ref }}" },
+            { "fieldName": "email", "fieldValue": "={{ $('Preparar datos').item.json.comprador_email }}" },
+            { "fieldName": "comment", "fieldValue": "Cliente de Mercado Libre (creado por n8n)" }
+          ]
+        }
+      },
+      "id": "odoo-newp",
+      "name": "Crear cliente",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [1320, 420],
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "sale.order",
+        "operation": "create",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "partner_id", "fieldValue": "={{ $json.id }}" },
+            { "fieldName": "origin", "fieldValue": "={{ $('Preparar datos').item.json.origen }}" },
+            { "fieldName": "note", "fieldValue": "={{ $('Preparar datos').item.json.nota }}" }
+          ]
+        }
+      },
+      "id": "odoo-so",
+      "name": "Crear orden de venta",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [1540, 320],
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Genera un item por cada linea de la orden de ML,\n// arrastrando el id de la sale.order recien creada en Odoo.\nconst orden = $json; // respuesta del create (tiene el id)\nconst datos = $('Preparar datos').item.json;\nconst soId = orden.id || (Array.isArray(orden) ? orden[0].id : null);\nif (!soId) throw new Error('No se obtuvo el id de la sale.order creada');\nreturn datos.lineas.map(l => ({ json: { ...l, sale_order_id: soId } }));"
+      },
+      "id": "code-lines",
+      "name": "Expandir líneas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 320]
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "product.product",
+        "operation": "getAll",
+        "returnAll": true,
+        "filters": {
+          "filter": [
+            { "fieldName": "x_studio_ml_item_id", "operator": "equal", "value": "={{ $json.ml_item_id }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "odoo-findprod",
+      "name": "Buscar producto por item_id",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [1980, 320],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "sale.order.line",
+        "operation": "create",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            { "fieldName": "order_id", "fieldValue": "={{ $('Expandir líneas').item.json.sale_order_id }}" },
+            { "fieldName": "product_id", "fieldValue": "={{ $json.id }}" },
+            { "fieldName": "product_uom_qty", "fieldValue": "={{ $('Expandir líneas').item.json.cantidad }}" },
+            { "fieldName": "price_unit", "fieldValue": "={{ $('Expandir líneas').item.json.precio_neto }}" }
+          ]
+        }
+      },
+      "id": "odoo-soline",
+      "name": "Crear línea de orden",
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [2200, 320],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "odooApi": { "id": "REEMPLAZAR_CRED_ODOO", "name": "Odoo account" }
+      }
+    },
+    {
+      "parameters": {
+        "notice": "LA ORDEN QUEDA EN BORRADOR: el nodo Odoo de n8n no puede apretar el boton Confirmar (es un metodo, no un dato). La nota de la orden dice *** PAGADA: CONFIRMAR *** cuando el pago esta aprobado: se confirma con un clic en Odoo. Anti-duplicados: se busca sale.order con origin = 'ML #id' antes de crear."
+      },
+      "id": "note-draft",
+      "name": "Nota: borrador + anti-dup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1520, 100]
+    },
+    {
+      "parameters": {
+        "notice": "PRECIOS: ML informa el precio final CON IVA; en la linea de Odoo se carga el neto (precio / 1.21) para que Odoo re-aplique el IVA 21% y cierre igual. Si el producto de ML no se encuentra en Odoo (x_studio_ml_item_id), la orden queda creada SIN esa linea: revisar la ejecucion."
+      },
+      "id": "note-price",
+      "name": "Nota: precios netos",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [2140, 100]
+    }
+  ],
+  "connections": {
+    "Webhook ML (orders_v2)": { "main": [[{ "node": "¿Es orders_v2?", "type": "main", "index": 0 }]] },
+    "¿Es orders_v2?": {
+      "main": [
+        [{ "node": "Extraer order_id", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Extraer order_id": { "main": [[{ "node": "Obtener token ML", "type": "main", "index": 0 }]] },
+    "Obtener token ML": { "main": [[{ "node": "Traer orden de ML", "type": "main", "index": 0 }]] },
+    "Traer orden de ML": { "main": [[{ "node": "Preparar datos", "type": "main", "index": 0 }]] },
+    "Preparar datos": { "main": [[{ "node": "Buscar orden existente", "type": "main", "index": 0 }]] },
+    "Buscar orden existente": { "main": [[{ "node": "¿Ya existe?", "type": "main", "index": 0 }]] },
+    "¿Ya existe?": {
+      "main": [
+        [{ "node": "Fin (orden duplicada)", "type": "main", "index": 0 }],
+        [{ "node": "Buscar cliente", "type": "main", "index": 0 }]
+      ]
+    },
+    "Buscar cliente": { "main": [[{ "node": "¿Cliente existe?", "type": "main", "index": 0 }]] },
+    "¿Cliente existe?": {
+      "main": [
+        [{ "node": "Crear orden de venta", "type": "main", "index": 0 }],
+        [{ "node": "Crear cliente", "type": "main", "index": 0 }]
+      ]
+    },
+    "Crear cliente": { "main": [[{ "node": "Crear orden de venta", "type": "main", "index": 0 }]] },
+    "Crear orden de venta": { "main": [[{ "node": "Expandir líneas", "type": "main", "index": 0 }]] },
+    "Expandir líneas": { "main": [[{ "node": "Buscar producto por item_id", "type": "main", "index": 0 }]] },
+    "Buscar producto por item_id": { "main": [[{ "node": "Crear línea de orden", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}
