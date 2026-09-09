@@ -21,7 +21,10 @@ export type ReglaRecurrente = {
   periodo: Periodo;
   fijo: number; // 0 | 1, sólo aplica a gastos
   fecha_inicio: string;
-  dia_venc: number | null;
+  dia_venc: number | null;   // 1-31, ancla de 'mensual' y 'anual'
+  dia_semana: number | null; // 0 (domingo) - 6 (sábado), ancla de 'semanal'
+  mes_anio: number | null;   // 1-12, ancla de 'anual'
+  fecha_fin: string | null;  // null = sin fin
   activa: number; // 0 | 1
 };
 
@@ -36,6 +39,7 @@ export type Transaccion = {
   fecha: string;
   venc: string | null;
   estado: Estado;
+  pagado_en: string | null; // día real de pago; null mientras esté pendiente
   regla_recurrente_id: number | null;
 };
 

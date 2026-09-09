@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { CATS, CATS_ING, MONEDA_DEFAULT } from '../lib/categorias';
 import { iso, hoy } from '../lib/format';
 
-const DATABASE_VERSION = 3;
+const DATABASE_VERSION = 4;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
@@ -73,6 +73,7 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
 
     await seed(db);
     currentVersion = 3;
+
   }
 
   if (currentVersion === 1) {
@@ -93,6 +94,51 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
       UPDATE reglas_recurrentes SET fecha_inicio = date('now') WHERE fecha_inicio NOT GLOB ${GLOB_FECHA};
     `);
     currentVersion = 3;
+  }
+
+  if (currentVersion === 3) {
+    // v4: recurrentes completos (semanal/anual con ancla propia), fecha de pago
+    // y tabla de configuracion para la ventana de "por pagar".
+    await db.execAsync(`
+      ALTER TABLE reglas_recurrentes ADD COLUMN dia_semana INTEGER;
+      ALTER TABLE reglas_recurrentes ADD COLUMN mes_anio INTEGER;
+      ALTER TABLE reglas_recurrentes ADD COLUMN fecha_fin TEXT;
+      ALTER TABLE transacciones ADD COLUMN pagado_en TEXT;
+
+      CREATE TABLE IF NOT EXISTS config (
+        clave TEXT PRIMARY KEY,
+        valor TEXT NOT NULL
+      );
+    `);
+
+    await db.runAsync(
+      "INSERT OR IGNORE INTO config (clave, valor) VALUES ('ventana_pendientes_dias', '45')"
+    );
+
+    // Backfill de anclas: las reglas viejas solo tenian dia_venc.
+    // strftime('%w') -> 0=domingo..6=sabado, igual que dia_semana.
+    await db.execAsync(`
+      UPDATE reglas_recurrentes
+         SET dia_semana = CAST(strftime('%w', fecha_inicio) AS INTEGER)
+       WHERE periodo = 'semanal' AND dia_semana IS NULL;
+
+      UPDATE reglas_recurrentes
+         SET mes_anio = CAST(strftime('%m', fecha_inicio) AS INTEGER)
+       WHERE periodo = 'anual' AND mes_anio IS NULL;
+
+      UPDATE reglas_recurrentes
+         SET dia_venc = CAST(strftime('%d', fecha_inicio) AS INTEGER)
+       WHERE periodo IN ('mensual','anual') AND dia_venc IS NULL;
+
+      UPDATE transacciones SET venc = fecha WHERE venc IS NULL;
+      UPDATE transacciones SET pagado_en = fecha WHERE estado = 'pagado' AND pagado_en IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_transacciones_estado_venc ON transacciones(estado, venc);
+      CREATE INDEX IF NOT EXISTS idx_transacciones_regla_venc ON transacciones(regla_recurrente_id, venc);
+      CREATE INDEX IF NOT EXISTS idx_transacciones_pagado_en ON transacciones(pagado_en);
+    `);
+
+    currentVersion = 4;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
