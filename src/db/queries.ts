@@ -1,6 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { MONEDA_DEFAULT, Periodo, TipoTx } from '../lib/categorias';
 import { Estado } from './types';
+import { getVentanaPendientes } from './config';
+import { diaSemanaISO, hoyISO, sumarDiasISO } from '../lib/fechasRecurrentes';
 
 export type TransaccionVista = {
   id: number;
@@ -57,10 +59,17 @@ export async function crearTransaccion(db: SQLiteDatabase, input: NuevaTransacci
   let reglaId: number | null = null;
 
   if (input.rec && input.periodo) {
-    const diaVenc = input.venc ? new Date(`${input.venc}T12:00`).getDate() : null;
+    // El ancla de repetición sale del vencimiento si lo hay, y si no de la
+    // fecha de la transacción. Cada periodo necesita su propia ancla:
+    // mensual -> día del mes; semanal -> día de la semana; anual -> día y mes.
+    const ancla = input.venc ?? input.fecha;
+    const [, mesAncla, diaAncla] = ancla.split('-').map(Number);
+
     const r = await db.runAsync(
-      `INSERT INTO reglas_recurrentes (tipo, nombre, categoria_id, cuenta_id, monto, moneda, periodo, fijo, fecha_inicio, dia_venc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO reglas_recurrentes
+         (tipo, nombre, categoria_id, cuenta_id, monto, moneda, periodo, fijo,
+          fecha_inicio, dia_venc, dia_semana, mes_anio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.tipo,
       input.nombre,
       input.categoria_id,
@@ -70,7 +79,9 @@ export async function crearTransaccion(db: SQLiteDatabase, input: NuevaTransacci
       input.periodo,
       input.fijo ? 1 : 0,
       input.fecha,
-      diaVenc
+      input.periodo === 'mensual' || input.periodo === 'anual' ? diaAncla : null,
+      input.periodo === 'semanal' ? diaSemanaISO(ancla) : null,
+      input.periodo === 'anual' ? mesAncla : null
     );
     reglaId = r.lastInsertRowId;
   }
@@ -92,8 +103,65 @@ export async function crearTransaccion(db: SQLiteDatabase, input: NuevaTransacci
 }
 
 export async function alternarEstado(db: SQLiteDatabase, id: number) {
+  // pagado_en acompaña al estado: si vuelve a pendiente, la fecha de pago
+  // deja de existir. Si no, quedaría una fecha de pago sobre algo impago.
   await db.runAsync(
-    `UPDATE transacciones SET estado = CASE estado WHEN 'pagado' THEN 'pendiente' ELSE 'pagado' END WHERE id = ?`,
+    `UPDATE transacciones
+        SET estado    = CASE estado WHEN 'pagado' THEN 'pendiente' ELSE 'pagado' END,
+            pagado_en = CASE estado WHEN 'pagado' THEN NULL ELSE ? END
+      WHERE id = ?`,
+    hoyISO(),
+    id
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Por pagar / pagado
+// ---------------------------------------------------------------------------
+
+/**
+ * "Por pagar": pendientes que vencen dentro de la ventana configurada,
+ * más las ya vencidas (venc < hoy), que son justamente las que urgen.
+ * Orden ascendente por vencimiento: primero lo más próximo.
+ */
+export async function getPorPagar(
+  db: SQLiteDatabase,
+  tipo?: TipoTx
+): Promise<TransaccionVista[]> {
+  const ventana = await getVentanaPendientes(db);
+  const limite = sumarDiasISO(hoyISO(), ventana);
+
+  return db.getAllAsync<TransaccionVista>(
+    `SELECT t.id, t.tipo, t.nombre, t.categoria_id, t.monto, t.moneda, t.fecha, t.venc, t.estado,
+            c.emoji as cat_emoji, c.nombre as cat_nombre,
+            r.periodo as periodo, r.fijo as fijo,
+            CASE WHEN t.regla_recurrente_id IS NULL THEN 0 ELSE 1 END as rec
+       FROM transacciones t
+       JOIN categorias c ON c.id = t.categoria_id
+       LEFT JOIN reglas_recurrentes r ON r.id = t.regla_recurrente_id
+      WHERE t.estado = 'pendiente'
+        AND t.venc IS NOT NULL AND t.venc <= ?
+        AND (? IS NULL OR t.tipo = ?)
+      ORDER BY t.venc ASC, t.id ASC`,
+    limite,
+    tipo ?? null,
+    tipo ?? null
+  );
+}
+
+/** Marca una transacción como pagada y registra el día real de pago. */
+export async function marcarPagada(db: SQLiteDatabase, id: number): Promise<void> {
+  await db.runAsync(
+    "UPDATE transacciones SET estado = 'pagado', pagado_en = ? WHERE id = ?",
+    hoyISO(),
+    id
+  );
+}
+
+/** Vuelve una transacción a pendiente y borra la fecha de pago. */
+export async function marcarPendiente(db: SQLiteDatabase, id: number): Promise<void> {
+  await db.runAsync(
+    "UPDATE transacciones SET estado = 'pendiente', pagado_en = NULL WHERE id = ?",
     id
   );
 }
