@@ -1,12 +1,18 @@
 /**
  * Proyección de saldo a futuro. Solo lectura: nunca escribe en la base.
  *
+ * Arranca en el PRIMER DÍA DEL MES SIGUIENTE y devuelve solo meses calendario
+ * completos. El mes en curso queda afuera a propósito: a mitad de mes ya tiene
+ * sueldo cobrado y cuotas pagadas, así que proyectar solo lo que le falta lo
+ * mostraría en rojo profundo sin serlo. Lo del mes en curso se mira en Home,
+ * que sí distingue lo ya movido de lo pendiente.
+ *
  * Combina dos fuentes, cuidando de no contar nada dos veces:
  *   (a) ocurrencias futuras de las reglas activas, calculadas en memoria;
  *   (b) transacciones pendientes SIN regla (cargadas a mano) que caen dentro
  *       del horizonte.
  * Las pendientes que sí tienen regla no se suman en (b) porque ya están
- * contempladas en (a) — sumarlas duplicaría los primeros 45 días.
+ * contempladas en (a) — sumarlas duplicaría los primeros meses.
  *
  * Se agrupa por moneda y NO se convierte entre monedas: sin cotización real,
  * un total mezclado sería un número inventado.
@@ -16,6 +22,7 @@ import { TipoTx } from '../lib/categorias';
 import {
   AnclaRegla,
   compararISO,
+  finDeMesISO,
   hoyISO,
   ocurrenciasEntre,
   sumarMesesISO,
@@ -39,8 +46,11 @@ export async function calcularProyeccion(
   db: SQLiteDatabase,
   horizonteMeses: number
 ): Promise<ProyeccionPorMoneda> {
-  const hoy = hoyISO();
-  const horizonte = sumarMesesISO(hoy, horizonteMeses);
+  // `desde` exclusivo = último día del mes en curso, así la primera ocurrencia
+  // posible es el día 1 del mes siguiente. `hasta` = fin del último mes pedido,
+  // para que ningún mes de la serie quede cortado por la mitad.
+  const desde = finDeMesISO(hoyISO());
+  const horizonte = finDeMesISO(sumarMesesISO(desde, horizonteMeses));
 
   // moneda -> mes -> acumuladores
   const acc: Record<string, Record<string, { ingresos: number; egresos: number }>> = {};
@@ -52,13 +62,11 @@ export async function calcularProyeccion(
     else bucket.egresos += monto;
   };
 
-  // (a) Reglas activas repetidas hacia adelante. `desde` es exclusivo: la
-  // proyección mira estrictamente después de hoy. Lo que vence hoy ya lo
-  // muestra "Por pagar" en Home, y contarlo acá lo duplicaría a la vista.
+  // (a) Reglas activas repetidas hacia adelante.
   const reglas = await getReglasActivas(db);
   for (const regla of reglas) {
     const ancla: AnclaRegla = regla;
-    for (const fecha of ocurrenciasEntre(ancla, hoy, horizonte)) {
+    for (const fecha of ocurrenciasEntre(ancla, desde, horizonte)) {
       sumar(regla.moneda, mesDe(fecha), regla.tipo, regla.monto);
     }
   }
@@ -74,7 +82,7 @@ export async function calcularProyeccion(
       WHERE estado = 'pendiente' AND regla_recurrente_id IS NULL
         AND venc IS NOT NULL AND venc > ? AND venc <= ?
       ORDER BY venc ASC`,
-    hoy,
+    desde,
     horizonte
   );
   for (const m of manuales) {

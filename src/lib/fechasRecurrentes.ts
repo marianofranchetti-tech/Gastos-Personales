@@ -73,6 +73,12 @@ export function sumarMesesISO(iso: string, meses: number): string {
   return aISO(dest.y, dest.m, recortarDia(dest.y, dest.m, d));
 }
 
+/** Último día del mes al que pertenece la fecha, en ISO. */
+export function finDeMesISO(iso: string): string {
+  const { y, m } = partesISO(iso);
+  return aISO(y, m, ultimoDiaDelMes(y, m));
+}
+
 /** Día de la semana de una fecha ISO: 0 = domingo ... 6 = sábado. */
 export function diaSemanaISO(iso: string): number {
   const { y, m, d } = partesISO(iso);

@@ -16,6 +16,7 @@ export type TransaccionVista = {
   fecha: string;
   venc: string | null;
   estado: Estado;
+  regla_recurrente_id: number | null;
   rec: number; // 0 | 1
   periodo: Periodo | null;
   fijo: number | null; // 0 | 1
@@ -27,6 +28,7 @@ export async function getTransaccionesConRegla(
 ): Promise<TransaccionVista[]> {
   return db.getAllAsync<TransaccionVista>(
     `SELECT t.id, t.tipo, t.nombre, t.categoria_id, t.monto, t.moneda, t.fecha, t.venc, t.estado,
+            t.regla_recurrente_id,
             c.emoji as cat_emoji, c.nombre as cat_nombre,
             r.periodo as periodo, r.fijo as fijo,
             CASE WHEN t.regla_recurrente_id IS NULL THEN 0 ELSE 1 END as rec
@@ -133,6 +135,7 @@ export async function getPorPagar(
 
   return db.getAllAsync<TransaccionVista>(
     `SELECT t.id, t.tipo, t.nombre, t.categoria_id, t.monto, t.moneda, t.fecha, t.venc, t.estado,
+            t.regla_recurrente_id,
             c.emoji as cat_emoji, c.nombre as cat_nombre,
             r.periodo as periodo, r.fijo as fijo,
             CASE WHEN t.regla_recurrente_id IS NULL THEN 0 ELSE 1 END as rec
