@@ -1,0 +1,41 @@
+# Deploy de la app web en Render (sitio estático).
+#
+# Es el build de Expo para web: React Native Web + SQLite corriendo en el
+# navegador vía wa-sqlite (WASM). La base vive en el browser de cada visitante
+# (OPFS), no en un servidor: cada uno ve SUS datos y no hay backend ni cuentas.
+# Eso lo hace perfecto para mostrar y probar, y NO apto para usar en serio
+# todavía — si el usuario limpia los datos del sitio, pierde todo.
+#
+# Verificado que NO hacen falta headers COOP/COEP: el build usa un VFS que no
+# necesita SharedArrayBuffer. No los agregues "por las dudas": COEP require-corp
+# bloquea recursos cross-origin y rompe más de lo que arregla.
+services:
+  - type: web
+    name: fluxo-app
+    runtime: static
+    buildCommand: npm ci && npx expo export --platform web
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: true
+    envVars:
+      # Expo SDK 54 necesita Node 20+. Fijamos la versión para que un cambio
+      # del default de Render no rompa un build que hoy anda.
+      - key: NODE_VERSION
+        value: "22.22.2"
+    headers:
+      # El bundle y el wasm llevan hash en el nombre: son inmutables.
+      - path: /_expo/static/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      # index.html no: si se cachea, el usuario queda clavado en una versión vieja.
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+    routes:
+      # Una sola página: cualquier ruta cae en index.html. Hoy la navegación es
+      # por estado, pero esto deja lugar a expo-router sin tener que volver acá.
+      - type: rewrite
+        source: /*
+        destination: /index.html

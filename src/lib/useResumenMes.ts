@@ -33,14 +33,8 @@ export function useResumenMes() {
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 5);
   }, [gMes]);
 
-  const proximos = useMemo(
-    () =>
-      gastos
-        .filter((t) => t.estado === 'pendiente')
-        .sort((a, b) => (a.venc ?? '').localeCompare(b.venc ?? ''))
-        .slice(0, 3),
-    [gastos]
-  );
+  // 'proximos' se fue de acá: los vencimientos ahora salen de porPagar, que
+  // los lee materializados de la base y respeta la ventana configurable.
 
-  return { gMes, iMes, totG, totI, pendCobro, balance, desequilibrio, pctG, porCat, proximos };
+  return { gMes, iMes, totG, totI, pendCobro, balance, desequilibrio, pctG, porCat };
 }

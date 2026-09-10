@@ -2,15 +2,21 @@ import { Pressable, Text, View } from 'react-native';
 import { TransaccionVista } from '../db/queries';
 import { PERIODOS, TODAS_CATS } from '../lib/categorias';
 import { CAT_ICONS } from '../lib/iconos';
-import { fechaISO, fmt, hoy, proxVenc } from '../lib/format';
+import { diaCorto, fechaISO, fmt, hoy } from '../lib/format';
 import { T } from '../lib/theme';
 
-export function Fila({ t, onToggle }: { t: TransaccionVista; onToggle: (id: number) => void }) {
+export function Fila({
+  t,
+  onToggle,
+  masOcurrencias = 0,
+}: {
+  t: TransaccionVista;
+  onToggle: (id: number) => void;
+  /** Cuántas ocurrencias más de la misma regla quedan en la ventana. */
+  masOcurrencias?: number;
+}) {
   const cat = TODAS_CATS.find((c) => c.id === t.categoria_id);
   const Icono = CAT_ICONS[t.categoria_id];
-  const nx = t.rec
-    ? proxVenc({ rec: true, venc: t.venc, fecha: t.fecha, periodo: t.periodo ?? undefined })
-    : null;
   const cobrado = t.estado === 'pagado';
   const fVenc = fechaISO(t.venc);
   if (fVenc) fVenc.setHours(23, 59, 0, 0); // vence al final del día
@@ -38,17 +44,19 @@ export function Fila({ t, onToggle }: { t: TransaccionVista; onToggle: (id: numb
         <Text className="font-medium" style={{ color: T.text }} numberOfLines={1}>
           {t.nombre}
         </Text>
-        <Text className="text-xs" style={{ color: T.muted }}>
+        <Text className="text-xs" style={{ color: T.muted }} numberOfLines={1}>
           {t.rec
             ? `Recurrente · ${periodoNombre}${t.tipo === 'gasto' ? (t.fijo ? ' · Fijo' : ' · Variable') : ''}`
             : 'Eventual'}
-          {nx ? (
-            <Text style={{ color: T.teal }}>
-              {' '}
-              · Próx: {nx.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}
-            </Text>
-          ) : null}
         </Text>
+        {t.venc ? (
+          <Text className="text-xs" style={{ color: vencido ? T.danger : T.teal }} numberOfLines={1}>
+            {t.tipo === 'gasto' ? 'Vence' : 'Esperado'} {diaCorto(t.venc)}
+            {masOcurrencias > 0 ? (
+              <Text style={{ color: T.muted }}> · +{masOcurrencias} más</Text>
+            ) : null}
+          </Text>
+        ) : null}
       </View>
       <View className="items-end">
         <Text className="font-semibold" style={{ color: t.tipo === 'gasto' ? T.text : T.teal }}>

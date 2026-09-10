@@ -12,7 +12,7 @@ import {
 import { materializarRecurrentes } from './materializar';
 import { calcularProyeccion, ProyeccionPorMoneda } from './proyeccion';
 
-const HORIZONTE_PROYECCION_MESES = 12;
+const HORIZONTE_PROYECCION_MESES = 6;
 
 type DataContextType = {
   gastos: TransaccionVista[];

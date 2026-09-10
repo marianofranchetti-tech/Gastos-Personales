@@ -18,13 +18,36 @@ afterEach(() => {
 });
 
 describe('calcularProyeccion', () => {
-  it('repite las reglas activas hacia adelante hasta el horizonte', async () => {
+  it('arranca en el mes siguiente y devuelve meses calendario completos', async () => {
+    // Hoy es 2026-09-01. Septiembre queda afuera entero: a mitad de mes ya
+    // tiene movimientos hechos y proyectar solo lo que falta lo pintaría mal.
     await insertarRegla(db, { periodo: 'mensual', dia_venc: 5, monto: 40000 });
 
     const p = await calcularProyeccion(db, 3);
 
-    expect(p.ARS.map((m) => m.mes)).toEqual(['2026-09', '2026-10', '2026-11']);
+    expect(p.ARS.map((m) => m.mes)).toEqual(['2026-10', '2026-11', '2026-12']);
     expect(p.ARS.map((m) => m.egresos)).toEqual([40000, 40000, 40000]);
+  });
+
+  it('deja afuera el mes en curso aunque queden vencimientos por caer', async () => {
+    await insertarRegla(db, { periodo: 'mensual', dia_venc: 28, monto: 40000 });
+
+    const p = await calcularProyeccion(db, 2);
+
+    expect(p.ARS.map((m) => m.mes)).toEqual(['2026-10', '2026-11']);
+  });
+
+  it('incluye el día 1 y el último día del mes, sin cortar por la mitad', async () => {
+    await insertarRegla(db, { periodo: 'mensual', dia_venc: 1, monto: 1000 });
+    await insertarRegla(db, { periodo: 'mensual', dia_venc: 31, monto: 500 });
+
+    const p = await calcularProyeccion(db, 2);
+
+    // Noviembre tiene 30 días: el "31" se recorta al 30 y sigue entrando.
+    expect(p.ARS.map((m) => [m.mes, m.egresos])).toEqual([
+      ['2026-10', 1500],
+      ['2026-11', 1500],
+    ]);
   });
 
   it('NO cuenta dos veces lo que ya fue materializado como pendiente', async () => {
@@ -48,9 +71,10 @@ describe('calcularProyeccion', () => {
     ]);
   });
 
-  it('ignora lo ya pagado y lo anterior a hoy', async () => {
+  it('ignora lo ya pagado, lo viejo y lo del mes en curso', async () => {
     await insertarTx(db, { venc: '2026-10-10', monto: 15000, estado: 'pagado' });
     await insertarTx(db, { venc: '2026-08-10', monto: 99000, estado: 'pendiente' });
+    await insertarTx(db, { venc: '2026-09-25', monto: 77000, estado: 'pendiente' });
 
     expect(await calcularProyeccion(db, 3)).toEqual({});
   });
@@ -73,39 +97,21 @@ describe('calcularProyeccion', () => {
     const p = await calcularProyeccion(db, 3);
 
     expect(p.ARS.map((m) => [m.mes, m.diferencia, m.acumulado])).toEqual([
-      ['2026-09', 60000, 60000],
-      ['2026-10', 60000, 120000],
-      ['2026-11', 60000, 180000],
-    ]);
-  });
-
-  it('los meses de los extremos pueden quedar incompletos, y es a propósito', async () => {
-    // El horizonte es una FECHA (hoy + N meses), no un mes calendario cerrado.
-    // Con hoy = 2026-09-01 y 3 meses, la ventana es (2026-09-01, 2026-12-01]:
-    //   - lo que vence hoy queda afuera, porque ya lo muestra "Por pagar";
-    //   - diciembre entra solo con lo que caiga el día 1.
-    // Si algún día la UI muestra meses cerrados, hay que cambiar el horizonte
-    // acá y no maquillarlo en la pantalla.
-    await insertarRegla(db, { tipo: 'ingreso', categoria_id: 'salario', periodo: 'mensual', dia_venc: 1, monto: 100000 });
-
-    const p = await calcularProyeccion(db, 3);
-
-    expect(p.ARS.map((m) => [m.mes, m.ingresos])).toEqual([
-      ['2026-10', 100000],
-      ['2026-11', 100000],
-      ['2026-12', 100000],
+      ['2026-10', 60000, 60000],
+      ['2026-11', 60000, 120000],
+      ['2026-12', 60000, 180000],
     ]);
   });
 
   it('excluye las reglas inactivas y respeta fecha_fin', async () => {
     await insertarRegla(db, { periodo: 'mensual', dia_venc: 5, monto: 40000, activa: 0 });
-    await insertarRegla(db, { periodo: 'mensual', dia_venc: 8, monto: 7000, fecha_fin: '2026-10-31' });
+    await insertarRegla(db, { periodo: 'mensual', dia_venc: 8, monto: 7000, fecha_fin: '2026-11-30' });
 
     const p = await calcularProyeccion(db, 4);
 
     expect(p.ARS.map((m) => [m.mes, m.egresos])).toEqual([
-      ['2026-09', 7000],
       ['2026-10', 7000],
+      ['2026-11', 7000],
     ]);
   });
 
