@@ -54,3 +54,59 @@ npx serve dist        # o cualquier servidor estático
 ```
 
 Si la app carga y ves datos en "Por pagar", SQLite arrancó bien en el navegador.
+
+
+---
+
+# APK de Android (EAS Build)
+
+Genera un APK instalable en cualquier Android, sin Expo Go y sin depender de la
+red local. Es un build release con el JS empaquetado: prueba el SQLite **nativo**,
+que es otra implementación distinta a la del navegador y a la de los tests.
+
+## Una sola vez
+
+```
+npx eas-cli login
+```
+
+Necesita una cuenta de Expo (gratis, https://expo.dev/signup). La primera vez que
+buildees te va a preguntar si crea el proyecto en tu cuenta: decile que sí. Eso
+escribe un `extra.eas.projectId` en `app.json`.
+
+También te va a ofrecer generar un **keystore** y guardarlo en su servidor.
+Aceptá. Ese keystore es lo que firma la app: si algún día publicás en Play y lo
+perdés, no podés volver a subir actualizaciones de esa app nunca más. EAS lo
+guarda y lo podés descargar con `npx eas-cli credentials`.
+
+## Cada build
+
+```
+npx eas-cli build --platform android --profile preview
+```
+
+Buildea en los servidores de Expo, no en tu máquina — no hace falta Android
+Studio ni el SDK. En el plan gratuito la cola puede tardar de 10 a 40 minutos.
+Cuando termina te da un link de descarga y un QR: abrilo desde el teléfono,
+descargá el APK y tocalo para instalar.
+
+Android va a avisar que es de un "origen desconocido". Es esperable: la app no
+viene de Play. Hay que permitir la instalación para el navegador o el gestor de
+archivos que uses.
+
+## Los perfiles
+
+- `preview` → APK instalable a mano. Es el de todos los días para probar.
+- `development` → APK con dev client; recarga el código desde tu máquina como
+  Expo Go, pero con los módulos nativos del proyecto. Útil cuando agreguemos
+  algo que Expo Go no soporta.
+- `production` → AAB para subir a Google Play. No lo uses todavía.
+
+## El identificador
+
+`android.package` es `com.franchetti.gastos`. No se le muestra al usuario —eso es
+`expo.name`, hoy "Gastos"— pero **queda fijo para siempre al primer envío a Play**.
+Está elegido a propósito sin la marca provisoria: si "Fluxo" cambia de nombre, el
+identificador sigue sirviendo y no obliga a publicar una app nueva.
+
+Mientras no subas a Play, se puede cambiar. Después, no.
