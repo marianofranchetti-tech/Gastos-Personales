@@ -21,7 +21,7 @@ const TABS: { id: Tab; Icono: LucideIcon; nombre: string }[] = [
 ];
 
 export function HomeShell() {
-  const { guardar } = useData();
+  const { guardar, editando, cerrarEdicion, editar, eliminar } = useData();
   const { totG, totI, pendCobro, balance, desequilibrio, pctG } = useResumenMes();
   const [tab, setTab] = useState<Tab>('inicio');
   const [form, setForm] = useState<TipoTx | null>(null);
@@ -75,19 +75,38 @@ export function HomeShell() {
           )}
         </View>
 
-        {desequilibrio && (
+        {balance !== 0 && (
           <View
             className="mx-4 mt-3 rounded-lg p-4 border"
-            style={{ backgroundColor: T.surface, borderColor: T.danger }}
+            style={{ backgroundColor: T.surface, borderColor: desequilibrio ? T.danger : T.teal }}
           >
-            <Text className="font-semibold text-sm" style={{ color: T.danger }}>
-              ⚠ Este mes pagaste más de lo que cobraste
-            </Text>
-            <Text className="text-sm mt-1" style={{ color: T.text }}>
-              Para equilibrar la balanza: aumentá tus ingresos en {fmt(-balance)} (
-              {totI > 0 ? Math.round((-balance / totI) * 100) : 0}%) o reducí tus gastos en {fmt(-balance)} (
-              {totG > 0 ? Math.round((-balance / totG) * 100) : 0}%).
-            </Text>
+            {desequilibrio ? (
+              <>
+                <Text className="font-semibold text-sm" style={{ color: T.danger }}>
+                  ⚠ Este mes pagaste más de lo que cobraste
+                </Text>
+                <Text className="text-sm mt-1" style={{ color: T.text }}>
+                  Te faltan {fmt(-balance)}. El camino más corto es recortar gastos:
+                  es un {totG > 0 ? Math.round((-balance / totG) * 100) : 0}% de lo que
+                  gastaste este mes.
+                </Text>
+                <Text className="text-xs mt-1.5" style={{ color: T.muted }}>
+                  Si ahí no hay margen, la otra salida es sumar {fmt(-balance)} de ingresos
+                  ({totI > 0 ? Math.round((-balance / totI) * 100) : 0}% más) — aunque con
+                  un sueldo fijo eso rara vez está en tus manos.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text className="font-semibold text-sm" style={{ color: T.teal }}>
+                  ✓ Este mes cobraste más de lo que pagaste
+                </Text>
+                <Text className="text-sm mt-1" style={{ color: T.text }}>
+                  Te sobran {fmt(balance)}. Apartalos ahora, antes de que se diluyan en
+                  el mes que viene.
+                </Text>
+              </>
+            )}
           </View>
         )}
 
@@ -98,17 +117,19 @@ export function HomeShell() {
         </View>
 
         <View className="absolute right-4 bottom-20 items-end" style={{ gap: 8 }}>
+          {/* Mismo tamaño los dos: ninguna de las dos acciones es "la principal".
+              Verde suma, rojo resta — el mismo código de color que los gráficos. */}
           <Pressable
             onPress={() => setForm('ingreso')}
-            className="w-12 h-12 rounded-full items-center justify-center"
+            className="w-14 h-14 rounded-full items-center justify-center"
             style={{ backgroundColor: T.tealD, elevation: 6 }}
           >
-            <Text className="text-white text-xl">+</Text>
+            <Text className="text-white text-2xl">+</Text>
           </Pressable>
           <Pressable
             onPress={() => setForm('gasto')}
             className="w-14 h-14 rounded-full items-center justify-center"
-            style={{ backgroundColor: T.primary, elevation: 6 }}
+            style={{ backgroundColor: T.danger, elevation: 6 }}
           >
             <Text className="text-white text-2xl">−</Text>
           </Pressable>
@@ -134,7 +155,19 @@ export function HomeShell() {
         </View>
       </View>
 
-      {form && <TransactionForm tipo={form} onSave={(t) => guardar(t)} onClose={() => setForm(null)} />}
+      {form && (
+        <TransactionForm tipo={form} onSave={(t) => guardar(t)} onClose={() => setForm(null)} />
+      )}
+
+      {editando && (
+        <TransactionForm
+          tipo={editando.tipo}
+          inicial={editando}
+          onSave={(t, alcance) => editar(editando.id, t, alcance)}
+          onDelete={(alcance) => eliminar(editando.id, alcance)}
+          onClose={cerrarEdicion}
+        />
+      )}
     </SafeAreaView>
   );
 }

@@ -8,10 +8,13 @@ import { T } from '../lib/theme';
 export function Fila({
   t,
   onToggle,
+  onEdit,
   masOcurrencias = 0,
 }: {
   t: TransaccionVista;
   onToggle: (id: number) => void;
+  /** Tocar la fila abre la edición. El badge de estado sigue alternando. */
+  onEdit?: (t: TransaccionVista) => void;
   /** Cuántas ocurrencias más de la misma regla quedan en la ventana. */
   masOcurrencias?: number;
 }) {
@@ -30,7 +33,8 @@ export function Fila({
       : { bg: T.warnBg, col: T.warn, txt: 'Pendiente' };
 
   return (
-    <View
+    <Pressable
+      onPress={onEdit ? () => onEdit(t) : undefined}
       className="flex-row items-center gap-3 rounded-lg px-3 py-2.5 border"
       style={{ backgroundColor: T.surface, borderColor: T.border }}
     >
@@ -73,6 +77,6 @@ export function Fila({
           </Text>
         </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
