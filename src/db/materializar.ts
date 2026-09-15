@@ -5,9 +5,15 @@
  * duplica filas, porque antes de insertar consulta si ya existe una
  * transacción de esa regla con ese vencimiento.
  *
- * Ancla deliberada: nunca se materializa hacia atrás. Si el usuario no abrió
- * la app durante tres meses no aparecen tres meses de cuotas vencidas de la
- * nada; la generación arranca en el día de hoy.
+ * Ancla deliberada: la generación arranca el día 1 del mes en curso, no hoy.
+ *
+ * Arrancar en "hoy" tenía un costo escondido: quien instalaba la app un día 15
+ * no veía el alquiler que vencía el 5, y su mes en curso aparecía vacío. Y
+ * arrancar en fecha_inicio es peor todavía: si no abrís la app en tres meses te
+ * aparecen tres meses de cuotas vencidas de golpe.
+ *
+ * El día 1 del mes es el punto medio: el mes en curso siempre queda completo y
+ * el relleno hacia atrás nunca supera los 30 días.
  */
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { AnclaRegla, hoyISO, ocurrenciasEntre, sumarDiasISO } from '../lib/fechasRecurrentes';
@@ -41,6 +47,7 @@ export async function getReglasActivas(db: SQLiteDatabase): Promise<ReglaComplet
 export async function materializarRecurrentes(db: SQLiteDatabase): Promise<number> {
   const ventana = await getVentanaPendientes(db);
   const hoy = hoyISO();
+  const inicioDeMes = `${hoy.slice(0, 7)}-01`;
   const horizonte = sumarDiasISO(hoy, ventana);
   const reglas = await getReglasActivas(db);
   if (reglas.length === 0) return 0;
@@ -49,9 +56,9 @@ export async function materializarRecurrentes(db: SQLiteDatabase): Promise<numbe
 
   await db.withTransactionAsync(async () => {
     for (const regla of reglas) {
-      // `desde` exclusivo: restamos un día para que una ocurrencia que cae
-      // justo hoy también se materialice.
-      const fechas = ocurrenciasEntre(regla, sumarDiasISO(hoy, -1), horizonte);
+      // `desde` exclusivo: restamos un día al 1 del mes para que una ocurrencia
+      // que cae justo el día 1 también entre.
+      const fechas = ocurrenciasEntre(regla, sumarDiasISO(inicioDeMes, -1), horizonte);
 
       for (const venc of fechas) {
         const existente = await db.getFirstAsync<{ id: number }>(

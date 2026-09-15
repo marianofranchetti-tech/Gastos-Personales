@@ -92,19 +92,15 @@ describe('estadisticasVentana', () => {
     expect(s['2026-09']).toEqual([0, 47000]);
   });
 
-  it('un vencimiento del mes en curso ya pasado NO aparece solo', async () => {
-    // Hoy es 15 de septiembre y la regla vence los días 5. Materializar nunca
-    // va hacia atrás, así que el alquiler del 5 de septiembre no existe: la
-    // primera ocurrencia generada es la de octubre.
-    //
-    // Es deliberado —evita resucitar meses viejos si el usuario no abrió la
-    // app— pero tiene un costo: quien instale la app a mitad de mes no ve los
-    // vencimientos de ese mes que ya pasaron y tiene que cargarlos a mano.
+  it('un vencimiento del mes en curso que ya pasó SÍ aparece', async () => {
+    // Hoy es 15 de septiembre y la regla vence los días 5. Materializar
+    // arranca el día 1 del mes, así que el alquiler del 5 existe aunque la
+    // app se haya instalado después.
     await insertarRegla(db, { periodo: 'mensual', dia_venc: 5, monto: 40000 });
     await materializarRecurrentes(db);
 
     const s = porMes(await estadisticasVentana(db));
-    expect(s['2026-09']).toEqual([0, 0]);
+    expect(s['2026-09']).toEqual([0, 40000]);
     expect(s['2026-10']).toEqual([0, 40000]);
   });
 
