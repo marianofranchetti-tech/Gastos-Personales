@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { CATS, CATS_ING, MONEDA_DEFAULT } from '../lib/categorias';
 import { iso, hoy } from '../lib/format';
 
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
@@ -139,6 +139,29 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
     `);
 
     currentVersion = 4;
+  }
+
+  if (currentVersion === 4) {
+    // v5: registro de precios. Vive aparte del balance a propósito: anotar
+    // cuánto salió el aceite en el súper no es un gasto, es un dato de
+    // referencia para comparar después.
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS precios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        producto TEXT NOT NULL,
+        precio REAL NOT NULL,
+        moneda TEXT NOT NULL DEFAULT '${MONEDA_DEFAULT}',
+        comercio TEXT NOT NULL,
+        categoria_id TEXT REFERENCES categorias(id),
+        fecha TEXT NOT NULL
+      );
+
+      -- La consulta que importa es "este producto, a lo largo del tiempo".
+      CREATE INDEX IF NOT EXISTS idx_precios_producto ON precios(producto, fecha);
+      CREATE INDEX IF NOT EXISTS idx_precios_fecha ON precios(fecha);
+    `);
+
+    currentVersion = 5;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

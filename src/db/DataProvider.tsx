@@ -15,6 +15,20 @@ import {
 } from './queries';
 import { materializarRecurrentes } from './materializar';
 import { calcularProyeccion, ProyeccionPorMoneda } from './proyeccion';
+import {
+  estadisticasVentana,
+  fuentesDeIngreso,
+  gastosFijosDelMes,
+  MesBarra,
+} from './estadisticas';
+import {
+  crearPrecio,
+  eliminarPrecio as borrarPrecio,
+  actualizarPrecio,
+  NuevoPrecio,
+  resumenPorProducto,
+  ResumenProducto,
+} from './precios';
 
 const HORIZONTE_PROYECCION_MESES = 6;
 
@@ -23,6 +37,15 @@ type DataContextType = {
   ingresos: TransaccionVista[];
   porPagar: TransaccionVista[];
   proyeccion: ProyeccionPorMoneda;
+  /** Serie de 9 meses que alimenta los tres gráficos. */
+  estadisticas: MesBarra[];
+  /** Gasto del mes comprometido por reglas fijas. */
+  fijosDelMes: number;
+  /** De dónde viene la plata, para medir concentración. */
+  fuentes: { nombre: string; monto: number }[];
+  precios: ResumenProducto[];
+  guardarPrecio: (p: NuevoPrecio, id?: number) => Promise<void>;
+  eliminarPrecio: (id: number) => Promise<void>;
   loading: boolean;
   guardar: (input: NuevaTransaccion) => Promise<void>;
   alternar: (id: number) => Promise<void>;
@@ -45,20 +68,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [ingresos, setIngresos] = useState<TransaccionVista[]>([]);
   const [porPagar, setPorPagar] = useState<TransaccionVista[]>([]);
   const [proyeccion, setProyeccion] = useState<ProyeccionPorMoneda>({});
+  const [estadisticas, setEstadisticas] = useState<MesBarra[]>([]);
+  const [fijosDelMes, setFijosDelMes] = useState(0);
+  const [fuentes, setFuentes] = useState<{ nombre: string; monto: number }[]>([]);
+  const [precios, setPrecios] = useState<ResumenProducto[]>([]);
   const [loading, setLoading] = useState(true);
   const [editando, setEditando] = useState<TransaccionVista | null>(null);
 
   const refresh = useCallback(async () => {
-    const [g, i, pp, pr] = await Promise.all([
+    const [g, i, pp, pr, est, fij, fue, pre] = await Promise.all([
       getTransaccionesConRegla(db, 'gasto'),
       getTransaccionesConRegla(db, 'ingreso'),
       getPorPagar(db),
       calcularProyeccion(db, HORIZONTE_PROYECCION_MESES),
+      estadisticasVentana(db),
+      gastosFijosDelMes(db),
+      fuentesDeIngreso(db),
+      resumenPorProducto(db),
     ]);
     setGastos(g);
     setIngresos(i);
     setPorPagar(pp);
     setProyeccion(pr);
+    setEstadisticas(est);
+    setFijosDelMes(fij);
+    setFuentes(fue);
+    setPrecios(pre);
     setLoading(false);
   }, [db]);
 
@@ -126,6 +161,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [db, refresh]
   );
 
+  const guardarPrecio = useCallback(
+    async (p: NuevoPrecio, id?: number) => {
+      if (id != null) await actualizarPrecio(db, id, p);
+      else await crearPrecio(db, p);
+      await refresh();
+    },
+    [db, refresh]
+  );
+
+  const eliminarPrecio = useCallback(
+    async (id: number) => {
+      await borrarPrecio(db, id);
+      await refresh();
+    },
+    [db, refresh]
+  );
+
   const limpiar = useCallback(async () => {
     await limpiarDatos(db);
     await refresh();
@@ -138,6 +190,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
         ingresos,
         porPagar,
         proyeccion,
+        estadisticas,
+        fijosDelMes,
+        fuentes,
+        precios,
+        guardarPrecio,
+        eliminarPrecio,
         loading,
         guardar,
         alternar,

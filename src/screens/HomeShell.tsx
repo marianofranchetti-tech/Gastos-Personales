@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Home, TrendingDown, TrendingUp, LucideIcon } from 'lucide-react-native';
+import { Home, Tag, TrendingDown, TrendingUp, LucideIcon } from 'lucide-react-native';
 import { useData } from '../db/DataProvider';
 import { useResumenMes } from '../lib/useResumenMes';
 import { fmt, hoy } from '../lib/format';
@@ -10,14 +10,16 @@ import { APP_NAME, T } from '../lib/theme';
 import { InicioScreen } from './InicioScreen';
 import { GastosScreen } from './GastosScreen';
 import { IngresosScreen } from './IngresosScreen';
+import { PreciosScreen, PrecioForm } from './PreciosScreen';
 import { TransactionForm } from '../components/TransactionForm';
 
-type Tab = 'inicio' | 'gastos' | 'ingresos';
+type Tab = 'inicio' | 'gastos' | 'ingresos' | 'precios';
 
 const TABS: { id: Tab; Icono: LucideIcon; nombre: string }[] = [
   { id: 'inicio', Icono: Home, nombre: 'Inicio' },
   { id: 'gastos', Icono: TrendingDown, nombre: 'Gastos' },
   { id: 'ingresos', Icono: TrendingUp, nombre: 'Ingresos' },
+  { id: 'precios', Icono: Tag, nombre: 'Precios' },
 ];
 
 export function HomeShell() {
@@ -25,6 +27,7 @@ export function HomeShell() {
   const { totG, totI, pendCobro, balance, desequilibrio, pctG } = useResumenMes();
   const [tab, setTab] = useState<Tab>('inicio');
   const [form, setForm] = useState<TipoTx | null>(null);
+  const [formPrecio, setFormPrecio] = useState(false);
 
   return (
     <SafeAreaView className="flex-1" style={{ backgroundColor: T.bgDeep }} edges={['top', 'bottom']}>
@@ -75,7 +78,7 @@ export function HomeShell() {
           )}
         </View>
 
-        {balance !== 0 && (
+        {tab === 'inicio' && balance !== 0 && (
           <View
             className="mx-4 mt-3 rounded-lg p-4 border"
             style={{ backgroundColor: T.surface, borderColor: desequilibrio ? T.danger : T.teal }}
@@ -114,25 +117,39 @@ export function HomeShell() {
           {tab === 'inicio' && <InicioScreen />}
           {tab === 'gastos' && <GastosScreen />}
           {tab === 'ingresos' && <IngresosScreen />}
+          {tab === 'precios' && <PreciosScreen />}
         </View>
 
         <View className="absolute right-4 bottom-20 items-end" style={{ gap: 8 }}>
-          {/* Mismo tamaño los dos: ninguna de las dos acciones es "la principal".
-              Verde suma, rojo resta — el mismo código de color que los gráficos. */}
-          <Pressable
-            onPress={() => setForm('ingreso')}
-            className="w-14 h-14 rounded-full items-center justify-center"
-            style={{ backgroundColor: T.tealD, elevation: 6 }}
-          >
-            <Text className="text-white text-2xl">+</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setForm('gasto')}
-            className="w-14 h-14 rounded-full items-center justify-center"
-            style={{ backgroundColor: T.danger, elevation: 6 }}
-          >
-            <Text className="text-white text-2xl">−</Text>
-          </Pressable>
+          {tab === 'precios' ? (
+            <Pressable
+              onPress={() => setFormPrecio(true)}
+              className="w-14 h-14 rounded-full items-center justify-center"
+              style={{ backgroundColor: T.primary, elevation: 6 }}
+            >
+              <Text className="text-white text-2xl">+</Text>
+            </Pressable>
+          ) : (
+            <>
+              {/* Mismo tamaño los dos: ninguna de las dos acciones es "la
+                  principal". Verde suma, rojo resta — el mismo código de color
+                  que usan los gráficos. */}
+              <Pressable
+                onPress={() => setForm('ingreso')}
+                className="w-14 h-14 rounded-full items-center justify-center"
+                style={{ backgroundColor: T.tealD, elevation: 6 }}
+              >
+                <Text className="text-white text-2xl">+</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setForm('gasto')}
+                className="w-14 h-14 rounded-full items-center justify-center"
+                style={{ backgroundColor: T.danger, elevation: 6 }}
+              >
+                <Text className="text-white text-2xl">−</Text>
+              </Pressable>
+            </>
+          )}
         </View>
 
         <View className="flex-row border-t" style={{ backgroundColor: T.surface, borderColor: T.border }}>
@@ -158,6 +175,8 @@ export function HomeShell() {
       {form && (
         <TransactionForm tipo={form} onSave={(t) => guardar(t)} onClose={() => setForm(null)} />
       )}
+
+      {formPrecio && <PrecioForm onClose={() => setFormPrecio(false)} />}
 
       {editando && (
         <TransactionForm
