@@ -63,7 +63,7 @@ describe('migración — instalación nueva', () => {
     const db = crearDbFake();
     await migrateDbIfNeeded(db);
 
-    expect(await version(db)).toBe(4);
+    expect(await version(db)).toBe(5);
     expect(await columnas(db, 'reglas_recurrentes')).toEqual(
       expect.arrayContaining(['dia_semana', 'mes_anio', 'fecha_fin'])
     );
@@ -151,7 +151,31 @@ describe('migración v3 -> v4 sobre una base con datos', () => {
 
     const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM transacciones');
     expect(n!.n).toBe(3);
-    expect(await version(db)).toBe(4);
+    expect(await version(db)).toBe(5);
+    db.cerrar();
+  });
+});
+
+describe('migración v4 -> v5 (precios)', () => {
+  it('crea la tabla de precios en una instalación nueva', async () => {
+    const db = crearDbFake();
+    await migrateDbIfNeeded(db);
+
+    expect(await columnas(db, 'precios')).toEqual(
+      expect.arrayContaining(['producto', 'precio', 'moneda', 'comercio', 'categoria_id', 'fecha'])
+    );
+    db.cerrar();
+  });
+
+  it('la agrega también sobre una base vieja, sin tocar sus datos', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+
+    const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM precios');
+    const tx = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM transacciones');
+    expect(n!.n).toBe(0);
+    expect(tx!.n).toBe(3);
+    expect(await version(db)).toBe(5);
     db.cerrar();
   });
 });
