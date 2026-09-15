@@ -30,6 +30,24 @@ npm install                                          # desde Windows
 
 Instalá siempre desde una terminal de Windows, en `Desktop\CLAUDE`.
 
+## La contracara: `node_modules` sirve a un solo SO a la vez
+
+Varios paquetes traen binarios nativos y npm instala el de la plataforma donde
+corre. Instalando desde Windows —que es lo correcto— `rolldown` (dentro de
+vitest) queda con el binding de Windows, y entonces `npm test` **falla desde el
+lado Linux** con:
+
+```
+Cannot find native binding ... @rolldown/binding-wasm32-wasi
+```
+
+No está roto: está bien instalado, para Windows. `npm test` se corre desde
+Windows. Un agente que trabaje desde el puente y necesite correr la suite, que
+copie el código a su propio entorno e instale ahí, sin tocar este `node_modules`.
+
+No intentes que funcione en los dos lados a la vez: reinstalar desde Linux para
+arreglar los tests vuelve a romper Metro, y da vueltas en círculo.
+
 # Build web
 
 `npx expo export --platform web` sobre la carpeta montada es lentísimo (>5 min)
