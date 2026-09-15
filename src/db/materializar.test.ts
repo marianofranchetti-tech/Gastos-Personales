@@ -140,3 +140,41 @@ describe('materializarRecurrentes', () => {
     });
   });
 });
+
+describe('el ancla es el día 1 del mes, no hoy', () => {
+  it('rellena los vencimientos del mes en curso que ya pasaron', async () => {
+    // Instalar la app a mitad de mes no debería dejar el mes en blanco.
+    hoyEs('2026-09-20');
+    const id = await insertarRegla(db, { periodo: 'mensual', dia_venc: 5 });
+
+    await materializarRecurrentes(db);
+
+    expect(await vencimientos(db, id)).toContain('2026-09-05');
+  });
+
+  it('el relleno hacia atrás nunca sale del mes en curso', async () => {
+    // Aunque la regla sea de hace un año y la app no se abra en meses, no
+    // pueden aparecer cuotas viejas: el piso es el día 1 de este mes.
+    hoyEs('2026-09-20');
+    const id = await insertarRegla(db, {
+      periodo: 'mensual', dia_venc: 5, fecha_inicio: '2025-01-01',
+    });
+
+    await materializarRecurrentes(db);
+
+    const generados = await vencimientos(db, id);
+    expect(generados.every((v) => v >= '2026-09-01')).toBe(true);
+    expect(generados[0]).toBe('2026-09-05');
+  });
+
+  it('una regla semanal rellena todas las semanas del mes ya transcurridas', async () => {
+    hoyEs('2026-09-20');
+    // 2026-09-07 es lunes.
+    const id = await insertarRegla(db, { periodo: 'semanal', dia_semana: 1 });
+
+    await materializarRecurrentes(db);
+
+    const generados = await vencimientos(db, id);
+    expect(generados.slice(0, 3)).toEqual(['2026-09-07', '2026-09-14', '2026-09-21']);
+  });
+});
