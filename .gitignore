@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Temporales del puente y descargas del escritorio
+_*.tgz
+Claude outputs/

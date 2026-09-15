@@ -1,10 +1,14 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
+  actualizarTransaccion,
+  Alcance,
   alternarEstado,
   crearTransaccion,
+  eliminarTransaccion,
   getPorPagar,
   getTransaccionesConRegla,
+  limpiarDatos,
   marcarPagada,
   NuevaTransaccion,
   TransaccionVista,
@@ -24,6 +28,13 @@ type DataContextType = {
   alternar: (id: number) => Promise<void>;
   pagar: (id: number) => Promise<void>;
   refrescar: () => Promise<void>;
+  /** Movimiento abierto para editar, o null. Lo consume HomeShell. */
+  editando: TransaccionVista | null;
+  abrirEdicion: (t: TransaccionVista) => void;
+  cerrarEdicion: () => void;
+  editar: (id: number, input: NuevaTransaccion, alcance: Alcance) => Promise<void>;
+  eliminar: (id: number, alcance: Alcance) => Promise<void>;
+  limpiar: () => Promise<void>;
 };
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -35,6 +46,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [porPagar, setPorPagar] = useState<TransaccionVista[]>([]);
   const [proyeccion, setProyeccion] = useState<ProyeccionPorMoneda>({});
   const [loading, setLoading] = useState(true);
+  const [editando, setEditando] = useState<TransaccionVista | null>(null);
 
   const refresh = useCallback(async () => {
     const [g, i, pp, pr] = await Promise.all([
@@ -95,9 +107,49 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [db, refresh]
   );
 
+  const editar = useCallback(
+    async (id: number, input: NuevaTransaccion, alcance: Alcance) => {
+      await actualizarTransaccion(db, id, input, alcance);
+      // Una edición puede haber creado una regla nueva o corrido un ancla,
+      // así que hay que volver a materializar antes de leer.
+      await materializarRecurrentes(db);
+      await refresh();
+    },
+    [db, refresh]
+  );
+
+  const eliminar = useCallback(
+    async (id: number, alcance: Alcance) => {
+      await eliminarTransaccion(db, id, alcance);
+      await refresh();
+    },
+    [db, refresh]
+  );
+
+  const limpiar = useCallback(async () => {
+    await limpiarDatos(db);
+    await refresh();
+  }, [db, refresh]);
+
   return (
     <DataContext.Provider
-      value={{ gastos, ingresos, porPagar, proyeccion, loading, guardar, alternar, pagar, refrescar: refresh }}
+      value={{
+        gastos,
+        ingresos,
+        porPagar,
+        proyeccion,
+        loading,
+        guardar,
+        alternar,
+        pagar,
+        refrescar: refresh,
+        editando,
+        abrirEdicion: setEditando,
+        cerrarEdicion: () => setEditando(null),
+        editar,
+        eliminar,
+        limpiar,
+      }}
     >
       {children}
     </DataContext.Provider>

@@ -20,10 +20,12 @@ export function Grupos({
   items,
   tipo,
   onToggle,
+  onEdit,
 }: {
   items: TransaccionVista[];
   tipo: TipoTx;
   onToggle: (id: number) => void;
+  onEdit?: (t: TransaccionVista) => void;
 }) {
   const { pend, done } = agrupar(items);
   return (
@@ -34,7 +36,7 @@ export function Grupos({
             Pendientes ({pend.length})
           </Text>
           {pend.map((t) => (
-            <Fila key={t.id} t={t} onToggle={onToggle} />
+            <Fila key={t.id} t={t} onToggle={onToggle} onEdit={onEdit} />
           ))}
         </View>
       )}
@@ -44,7 +46,7 @@ export function Grupos({
             {tipo === 'gasto' ? 'Pagados' : 'Cobrados'} ({done.length})
           </Text>
           {done.map((t) => (
-            <Fila key={t.id} t={t} onToggle={onToggle} />
+            <Fila key={t.id} t={t} onToggle={onToggle} onEdit={onEdit} />
           ))}
         </View>
       )}

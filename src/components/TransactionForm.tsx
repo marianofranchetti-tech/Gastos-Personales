@@ -7,27 +7,44 @@ import { CAT_ICONS } from '../lib/iconos';
 import { fechaISO, hoy, iso } from '../lib/format';
 import { T } from '../lib/theme';
 import { Estado } from '../db/types';
-import { NuevaTransaccion } from '../db/queries';
+import { Alcance, NuevaTransaccion, TransaccionVista } from '../db/queries';
+import { ModalOpciones, OPCIONES_ALCANCE } from './ModalOpciones';
 
+/**
+ * Alta y edición de movimientos. Con `inicial` entra en modo edición: precarga
+ * los campos, cambia los textos y habilita eliminar.
+ *
+ * Cuando el movimiento viene de una regla recurrente, guardar y eliminar
+ * preguntan primero el alcance. Nunca se decide por el usuario: cambiar un mes
+ * puntual y cambiar el alquiler para siempre son cosas distintas.
+ */
 export function TransactionForm({
   tipo,
+  inicial,
   onSave,
+  onDelete,
   onClose,
 }: {
   tipo: TipoTx;
-  onSave: (t: NuevaTransaccion) => void;
+  inicial?: TransaccionVista;
+  onSave: (t: NuevaTransaccion, alcance: Alcance) => void;
+  onDelete?: (alcance: Alcance) => void;
   onClose: () => void;
 }) {
   const esG = tipo === 'gasto';
-  const [nombre, setNombre] = useState('');
-  const [monto, setMonto] = useState('');
-  const [cat, setCat] = useState(esG ? 'comida' : 'salario');
-  const [fecha, setFecha] = useState(iso(hoy));
-  const [rec, setRec] = useState(false);
-  const [periodo, setPeriodo] = useState<Periodo>('mensual');
-  const [fijo, setFijo] = useState(true);
-  const [estado, setEstado] = useState<Estado>('pendiente');
-  const [venc, setVenc] = useState(iso(hoy));
+  const editando = !!inicial;
+  const esRecurrente = !!inicial?.rec;
+
+  const [nombre, setNombre] = useState(inicial?.nombre ?? '');
+  const [monto, setMonto] = useState(inicial ? String(inicial.monto) : '');
+  const [cat, setCat] = useState(inicial?.categoria_id ?? (esG ? 'comida' : 'salario'));
+  const [fecha, setFecha] = useState(inicial?.fecha ?? iso(hoy));
+  const [rec, setRec] = useState(!!inicial?.rec);
+  const [periodo, setPeriodo] = useState<Periodo>(inicial?.periodo ?? 'mensual');
+  const [fijo, setFijo] = useState(inicial ? inicial.fijo !== 0 : true);
+  const [estado, setEstado] = useState<Estado>(inicial?.estado ?? 'pendiente');
+  const [venc, setVenc] = useState(inicial?.venc ?? inicial?.fecha ?? iso(hoy));
+  const [preguntando, setPreguntando] = useState<'guardar' | 'eliminar' | null>(null);
 
   const cats = esG ? CATS : CATS_ING;
   const fechaValida = !!fechaISO(fecha);
@@ -35,20 +52,36 @@ export function TransactionForm({
   const vencValido = !pideVenc || !!fechaISO(venc);
   const ok = nombre.trim().length > 0 && Number(monto) > 0 && fechaValida && vencValido;
 
-  const guardar = () => {
-    onSave({
-      tipo,
-      nombre: nombre.trim(),
-      monto: Number(monto),
-      categoria_id: cat,
-      fecha,
-      rec,
-      periodo: rec ? periodo : undefined,
-      fijo: esG ? fijo : undefined,
-      estado,
-      venc: esG || rec ? venc : undefined,
-    });
+  const datos = (): NuevaTransaccion => ({
+    tipo,
+    nombre: nombre.trim(),
+    monto: Number(monto),
+    categoria_id: cat,
+    fecha,
+    rec,
+    periodo: rec ? periodo : undefined,
+    fijo: esG ? fijo : undefined,
+    estado,
+    venc: esG || rec ? venc : undefined,
+  });
+
+  const confirmar = (alcance: Alcance) => {
+    if (preguntando === 'eliminar') onDelete?.(alcance);
+    else onSave(datos(), alcance);
+    setPreguntando(null);
     onClose();
+  };
+
+  // Sin regla detrás no hay nada que preguntar: el alcance es siempre 'solo'.
+  const guardar = () => {
+    if (editando && esRecurrente) return setPreguntando('guardar');
+    onSave(datos(), 'solo');
+    onClose();
+  };
+
+  const eliminar = () => {
+    if (esRecurrente) return setPreguntando('eliminar');
+    setPreguntando('eliminar');
   };
 
   return (
@@ -61,7 +94,9 @@ export function TransactionForm({
         >
           <View className="flex-row justify-between items-center mb-4">
             <Text className="text-lg font-bold" style={{ color: T.text }}>
-              {esG ? 'Nuevo gasto' : 'Nuevo ingreso'}
+              {editando
+                ? esG ? 'Editar gasto' : 'Editar ingreso'
+                : esG ? 'Nuevo gasto' : 'Nuevo ingreso'}
             </Text>
             <Pressable onPress={onClose}>
               <Text className="text-2xl leading-none px-2" style={{ color: T.muted }}>
@@ -215,11 +250,46 @@ export function TransactionForm({
               className="rounded-lg py-3 mt-2"
               style={{ backgroundColor: ok ? T.primary : T.border }}
             >
-              <Text className="text-white font-semibold text-center">Guardar {esG ? 'gasto' : 'ingreso'}</Text>
+              <Text className="text-white font-semibold text-center">
+                {editando ? 'Guardar cambios' : `Guardar ${esG ? 'gasto' : 'ingreso'}`}
+              </Text>
             </Pressable>
+
+            {editando && onDelete && (
+              <Pressable onPress={eliminar} className="py-3 mt-1">
+                <Text className="text-center font-semibold text-sm" style={{ color: T.danger }}>
+                  Eliminar {esG ? 'gasto' : 'ingreso'}
+                </Text>
+              </Pressable>
+            )}
           </ScrollView>
         </Pressable>
       </Pressable>
+
+      {preguntando && (
+        <ModalOpciones
+          titulo={
+            preguntando === 'eliminar'
+              ? `Eliminar ${esG ? 'este gasto' : 'este ingreso'}`
+              : 'Guardar los cambios'
+          }
+          mensaje={
+            esRecurrente
+              ? 'Es un movimiento recurrente. ¿Hasta dónde llega el cambio?'
+              : 'Esta acción no se puede deshacer.'
+          }
+          opciones={
+            esRecurrente
+              ? OPCIONES_ALCANCE.map((o) => ({
+                  ...o,
+                  destructiva: preguntando === 'eliminar',
+                }))
+              : [{ id: 'solo', label: 'Eliminar', destructiva: true }]
+          }
+          onElegir={(id) => confirmar(id as Alcance)}
+          onCancelar={() => setPreguntando(null)}
+        />
+      )}
     </Modal>
   );
 }

@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useData } from '../db/DataProvider';
 import { TransaccionVista } from '../db/queries';
 import { Fila } from '../components/Fila';
@@ -10,9 +10,11 @@ import { fmt } from '../lib/format';
 import { T } from '../lib/theme';
 import { useResumenMes } from '../lib/useResumenMes';
 import { agruparPendientes, sumar } from '../lib/agruparPendientes';
+import { ModalOpciones } from '../components/ModalOpciones';
 
 export function InicioScreen() {
-  const { alternar, porPagar, proyeccion } = useData();
+  const { alternar, porPagar, proyeccion, limpiar, abrirEdicion } = useData();
+  const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
   const { totG, porCat } = useResumenMes();
 
   // Los cobros esperados no son "por pagar": van en su propia sección.
@@ -32,6 +34,7 @@ export function InicioScreen() {
         titulo="Por pagar"
         filas={aPagar}
         onToggle={alternar}
+        onEdit={abrirEdicion}
         vacio="No tenés nada por pagar en los próximos días."
       />
 
@@ -39,6 +42,7 @@ export function InicioScreen() {
         titulo="Por cobrar"
         filas={aCobrar}
         onToggle={alternar}
+        onEdit={abrirEdicion}
         vacio={null}
       />
 
@@ -89,6 +93,27 @@ export function InicioScreen() {
           )}
         </View>
       </View>
+
+      {/* Los datos de ejemplo vienen cargados de fábrica y no son tuyos.
+          Esto los borra para que puedas empezar con tus números reales. */}
+      <Pressable onPress={() => setConfirmandoBorrado(true)} className="py-3">
+        <Text className="text-xs text-center" style={{ color: T.muted }}>
+          Borrar todos los movimientos y empezar de cero
+        </Text>
+      </Pressable>
+
+      {confirmandoBorrado && (
+        <ModalOpciones
+          titulo="Borrar todos los movimientos"
+          mensaje="Se van todos los gastos, ingresos y reglas recurrentes, incluidos los datos de ejemplo. Las categorías quedan. No se puede deshacer."
+          opciones={[{ id: 'ok', label: 'Borrar todo', detalle: 'Empezar de cero con tus números', destructiva: true }]}
+          onElegir={async () => {
+            setConfirmandoBorrado(false);
+            await limpiar();
+          }}
+          onCancelar={() => setConfirmandoBorrado(false)}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -97,11 +122,13 @@ function SeccionPendientes({
   titulo,
   filas,
   onToggle,
+  onEdit,
   vacio,
 }: {
   titulo: string;
   filas: TransaccionVista[];
   onToggle: (id: number) => void;
+  onEdit: (t: TransaccionVista) => void;
   vacio: string | null;
 }) {
   const agrupadas = useMemo(() => agruparPendientes(filas), [filas]);
@@ -135,7 +162,7 @@ function SeccionPendientes({
       </View>
       <View style={{ gap: 8 }}>
         {agrupadas.map(({ fila, mas }) => (
-          <Fila key={fila.id} t={fila} onToggle={onToggle} masOcurrencias={mas} />
+          <Fila key={fila.id} t={fila} onToggle={onToggle} onEdit={onEdit} masOcurrencias={mas} />
         ))}
       </View>
     </View>
