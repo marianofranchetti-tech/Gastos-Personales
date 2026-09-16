@@ -110,3 +110,56 @@ Está elegido a propósito sin la marca provisoria: si "Fluxo" cambia de nombre,
 identificador sigue sirviendo y no obliga a publicar una app nueva.
 
 Mientras no subas a Play, se puede cambiar. Después, no.
+
+
+---
+
+# Probar en iPhone
+
+## Gratis, sin cuenta de Apple: Expo Go
+
+Doble clic en `expo-go.bat`, o desde la terminal en la carpeta del proyecto:
+
+```
+npx expo start --tunnel
+```
+
+Instalá **Expo Go** desde el App Store y escaneá el QR **con la cámara del
+sistema** (en Android es al revés: se escanea desde adentro de Expo Go).
+
+El túnel va por internet, así que no importa en qué red esté cada dispositivo.
+Es lo que resuelve el caso típico de la PC en la red de la oficina y el teléfono
+en otra.
+
+Corre el SQLite nativo de iOS, o sea que la prueba es real. Lo que no tenés es
+un ícono propio en la pantalla de inicio, y necesitás la PC prendida con el
+túnel corriendo.
+
+## Una app instalada de verdad: US$99 por año
+
+Apple exige cuenta de desarrollador paga incluso para poner la app en tu propio
+teléfono, incluso por TestFlight. No hay camino gratis, a diferencia de Android.
+
+Cuando tengas la cuenta, ya está todo preparado:
+
+- `app.json` tiene `ios.bundleIdentifier` = `com.franchetti.gastos`, el mismo
+  criterio neutro que el package de Android: **queda fijo para siempre al primer
+  envío a la App Store**, así que no lleva la marca provisoria adentro.
+- `eas.json` tiene los perfiles con `ios.simulator: false`, o sea build para
+  teléfono real.
+
+El comando pasa a ser:
+
+```
+npx eas-cli build --platform ios --profile preview
+```
+
+Te va a pedir las credenciales de Apple y registrar el UDID del teléfono. Para
+distribuir a otras personas conviene TestFlight, que sale del mismo build.
+
+## Qué obliga a rebuildear y qué no
+
+Con `expo-updates` instalado, los cambios de código (pantallas, textos,
+cálculos, gráficos) se mandan por aire con `eas update` y llegan al abrir la
+app. Solo hace falta compilar de nuevo si cambia algo nativo: una librería con
+código propio, permisos del sistema, el ícono o el nombre de la app.
