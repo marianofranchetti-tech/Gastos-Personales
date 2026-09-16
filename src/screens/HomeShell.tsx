@@ -5,7 +5,7 @@ import { Home, Tag, TrendingDown, TrendingUp, LucideIcon } from 'lucide-react-na
 import { useData } from '../db/DataProvider';
 import { hoy } from '../lib/format';
 import { TipoTx } from '../lib/categorias';
-import { APP_NAME, T } from '../lib/theme';
+import { APP_NAME, SOMBRA_FLOTANTE, T } from '../lib/theme';
 import { InicioScreen } from './InicioScreen';
 import { GastosScreen } from './GastosScreen';
 import { IngresosScreen } from './IngresosScreen';
@@ -60,7 +60,7 @@ export function HomeShell() {
             <Pressable
               onPress={() => setFormPrecio(true)}
               className="w-14 h-14 rounded-full items-center justify-center"
-              style={{ backgroundColor: T.primary, elevation: 6 }}
+              style={{ backgroundColor: T.primary, ...SOMBRA_FLOTANTE }}
             >
               <Text className="text-white text-2xl">+</Text>
             </Pressable>
@@ -72,14 +72,14 @@ export function HomeShell() {
               <Pressable
                 onPress={() => setForm('ingreso')}
                 className="w-14 h-14 rounded-full items-center justify-center"
-                style={{ backgroundColor: T.tealD, elevation: 6 }}
+                style={{ backgroundColor: T.tealD, ...SOMBRA_FLOTANTE }}
               >
                 <Text className="text-white text-2xl">+</Text>
               </Pressable>
               <Pressable
                 onPress={() => setForm('gasto')}
                 className="w-14 h-14 rounded-full items-center justify-center"
-                style={{ backgroundColor: T.danger, elevation: 6 }}
+                style={{ backgroundColor: T.danger, ...SOMBRA_FLOTANTE }}
               >
                 <Text className="text-white text-2xl">−</Text>
               </Pressable>
