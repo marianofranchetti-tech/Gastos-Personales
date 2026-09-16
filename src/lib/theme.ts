@@ -20,4 +20,20 @@ export const T = {
   dangerBg: 'rgba(212,76,89,.15)',
 };
 
+/**
+ * Sombra de los botones flotantes.
+ *
+ * `elevation` es solo de Android: en iOS no hace nada y los botones quedan
+ * planos, pegados al fondo. iOS necesita las cuatro propiedades de shadow.
+ * Declarar las dos cosas juntas funciona en ambas plataformas, porque cada una
+ * ignora las que no entiende.
+ */
+export const SOMBRA_FLOTANTE = {
+  elevation: 6,
+  shadowColor: '#000',
+  shadowOpacity: 0.35,
+  shadowRadius: 6,
+  shadowOffset: { width: 0, height: 3 },
+} as const;
+
 export const APP_NAME = 'Fluxo'; // ⚠ PROVISORIO (alternativa: Proxar). Verificar tiendas + INPI antes de invertir en marca.
