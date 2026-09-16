@@ -21,7 +21,7 @@ export function Proyeccion({ proyeccion }: { proyeccion: ProyeccionPorMoneda }) 
   if (monedas.length === 0) {
     return (
       <View className="rounded-lg p-4 border" style={{ backgroundColor: T.surface, borderColor: T.border }}>
-        <Text className="text-sm" style={{ color: T.muted }}>
+        <Text className="text-[16px]" style={{ color: T.muted }}>
           Todavía no hay nada recurrente cargado, así que no hay nada que proyectar.
         </Text>
       </View>
@@ -46,14 +46,14 @@ function BloqueMoneda({ moneda, meses, varias }: { moneda: string; meses: MesPro
   return (
     <View className="rounded-lg p-4 border" style={{ backgroundColor: T.surface, borderColor: T.border, gap: 16 }}>
       {varias && (
-        <Text className="text-[11px] font-bold uppercase tracking-widest" style={{ color: T.muted }}>
+        <Text className="text-[14px] font-bold uppercase tracking-widest" style={{ color: T.muted }}>
           {moneda}
         </Text>
       )}
 
       {/* Titular: el número que resume los N meses */}
       <View>
-        <Text className="text-xs" style={{ color: T.muted }}>
+        <Text className="text-[14px]" style={{ color: T.muted }}>
           En {meses.length} meses acumulás
         </Text>
         <Text
@@ -64,7 +64,7 @@ function BloqueMoneda({ moneda, meses, varias }: { moneda: string; meses: MesPro
           {fmt(Math.abs(cierre.acumulado), moneda)}
         </Text>
         {cruce && (
-          <Text className="text-xs mt-0.5" style={{ color: T.warn }}>
+          <Text className="text-[14px] mt-0.5" style={{ color: T.warn }}>
             Te das vuelta en {mesLargo(cruce.mes)}
           </Text>
         )}
@@ -76,7 +76,7 @@ function BloqueMoneda({ moneda, meses, varias }: { moneda: string; meses: MesPro
         ))}
       </View>
 
-      <Text className="text-[11px]" style={{ color: T.muted }}>
+      <Text className="text-[14px]" style={{ color: T.muted }}>
         Sobre lo recurrente y lo pendiente ya cargado. No incluye el mes en curso.
       </Text>
     </View>
@@ -90,10 +90,10 @@ function MesFila({ m, moneda, escala }: { m: MesProyectado; moneda: string; esca
   return (
     <View style={{ gap: 4 }}>
       <View className="flex-row justify-between items-baseline">
-        <Text className="text-sm capitalize" style={{ color: T.text }}>
+        <Text className="text-[16px] capitalize" style={{ color: T.text }}>
           {mesLargo(m.mes)}
         </Text>
-        <Text className="text-sm font-semibold" style={{ color: positivo ? T.teal : T.danger }}>
+        <Text className="text-[16px] font-semibold" style={{ color: positivo ? T.teal : T.danger }}>
           {positivo ? '+' : '−'}
           {fmt(Math.abs(m.diferencia), moneda)}
         </Text>
@@ -115,10 +115,10 @@ function MesFila({ m, moneda, escala }: { m: MesProyectado; moneda: string; esca
       </View>
 
       <View className="flex-row justify-between">
-        <Text className="text-[11px]" style={{ color: T.muted }}>
+        <Text className="text-[14px]" style={{ color: T.muted }}>
           ↑ {fmt(m.ingresos, moneda)}   ↓ {fmt(m.egresos, moneda)}
         </Text>
-        <Text className="text-[11px]" style={{ color: T.muted }}>
+        <Text className="text-[14px]" style={{ color: T.muted }}>
           acumulado {m.acumulado >= 0 ? '' : '−'}
           {fmt(Math.abs(m.acumulado), moneda)}
         </Text>

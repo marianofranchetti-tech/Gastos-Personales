@@ -23,10 +23,13 @@ export type NuevoPrecio = Omit<Precio, 'id'>;
 
 /** Un producto con su última referencia y cómo viene variando. */
 export type ResumenProducto = {
+  /** id del registro más reciente: es el que se abre al tocar la fila. */
+  id: number;
   producto: string;
   ultimo: number;
   moneda: string;
   comercio: string;
+  categoria_id: string | null;
   fecha: string;
   registros: number;
   minimo: number;
@@ -104,10 +107,12 @@ export async function resumenPorProducto(db: SQLiteDatabase): Promise<ResumenPro
     const barato = registros.reduce((a, b) => (b.precio < a.precio ? b : a));
 
     out.push({
+      id: ultimo.id,
       producto: ultimo.producto,
       ultimo: ultimo.precio,
       moneda: ultimo.moneda,
       comercio: ultimo.comercio,
+      categoria_id: ultimo.categoria_id,
       fecha: ultimo.fecha,
       registros: registros.length,
       minimo: Math.min(...precios),

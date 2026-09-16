@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useData } from '../db/DataProvider';
 import { TransaccionVista } from '../db/queries';
+import { TODAS_CATS } from './categorias';
 import { mesActual } from './format';
 
 // "cobrado" = pagado en gastos, cobrado en ingresos (mismo estado en DB)
@@ -33,8 +34,25 @@ export function useResumenMes() {
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 5);
   }, [gMes]);
 
+  /**
+   * Lo mismo pero con nombre y porcentaje sobre el total del mes. El porcentaje
+   * es lo que hace comparable un mes con otro: $82.000 no dice nada solo, "el
+   * 17% de lo que gastaste" sí.
+   */
+  const categorias = useMemo(
+    () =>
+      porCat.map(([id, monto]) => ({
+        id,
+        nombre: TODAS_CATS.find((c) => c.id === id)?.nombre ?? id,
+        color: TODAS_CATS.find((c) => c.id === id)?.color,
+        monto,
+        porcentaje: totG > 0 ? Math.round((monto / totG) * 100) : 0,
+      })),
+    [porCat, totG]
+  );
+
   // 'proximos' se fue de acá: los vencimientos ahora salen de porPagar, que
   // los lee materializados de la base y respeta la ventana configurable.
 
-  return { gMes, iMes, totG, totI, pendCobro, balance, desequilibrio, pctG, porCat };
+  return { gMes, iMes, totG, totI, pendCobro, balance, desequilibrio, pctG, porCat, categorias };
 }

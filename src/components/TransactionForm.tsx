@@ -93,7 +93,7 @@ export function TransactionForm({
           onPress={(e) => e.stopPropagation()}
         >
           <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-lg font-bold" style={{ color: T.text }}>
+            <Text className="text-[20px] font-bold" style={{ color: T.text }}>
               {editando
                 ? esG ? 'Editar gasto' : 'Editar ingreso'
                 : esG ? 'Nuevo gasto' : 'Nuevo ingreso'}
@@ -143,7 +143,7 @@ export function TransactionForm({
                       }}
                     >
                       {Icono && <Icono size={18} strokeWidth={1.8} color={activa ? '#fff' : c.color} />}
-                      <Text className="text-[10px] leading-tight" style={{ color: activa ? '#fff' : T.muted }}>
+                      <Text className="text-[13px] leading-tight" style={{ color: activa ? '#fff' : T.muted }}>
                         {c.nombre.split(' ')[0]}
                       </Text>
                     </Pressable>
@@ -257,7 +257,7 @@ export function TransactionForm({
 
             {editando && onDelete && (
               <Pressable onPress={eliminar} className="py-3 mt-1">
-                <Text className="text-center font-semibold text-sm" style={{ color: T.danger }}>
+                <Text className="text-center font-semibold text-[16px]" style={{ color: T.danger }}>
                   Eliminar {esG ? 'gasto' : 'ingreso'}
                 </Text>
               </Pressable>

@@ -17,11 +17,11 @@ export function Sugerencias({ items }: { items: Sugerencia[] }) {
           className="rounded-lg p-4 border"
           style={{ backgroundColor: T.surface, borderColor: T.border, borderLeftWidth: 3, borderLeftColor: COLOR[s.tono] }}
         >
-          <Text className="font-semibold text-sm" style={{ color: T.text }}>
+          <Text className="font-semibold text-[16px]" style={{ color: T.text }}>
             <Text style={{ color: COLOR[s.tono] }}>{MARCA[s.tono]} </Text>
             {s.titulo}
           </Text>
-          <Text className="text-sm mt-1" style={{ color: T.muted }}>
+          <Text className="text-[16px] mt-1" style={{ color: T.muted }}>
             {s.detalle}
           </Text>
         </View>

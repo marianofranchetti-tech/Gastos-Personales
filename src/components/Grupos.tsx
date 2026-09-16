@@ -32,7 +32,7 @@ export function Grupos({
     <View>
       {pend.length > 0 && (
         <View style={{ gap: 8 }}>
-          <Text className="text-xs font-bold uppercase tracking-wide" style={{ color: T.warn }}>
+          <Text className="text-[14px] font-bold uppercase tracking-wide" style={{ color: T.warn }}>
             Pendientes ({pend.length})
           </Text>
           {pend.map((t) => (
@@ -42,7 +42,7 @@ export function Grupos({
       )}
       {done.length > 0 && (
         <View className="mt-4" style={{ gap: 8 }}>
-          <Text className="text-xs font-bold uppercase tracking-wide" style={{ color: T.teal }}>
+          <Text className="text-[14px] font-bold uppercase tracking-wide" style={{ color: T.teal }}>
             {tipo === 'gasto' ? 'Pagados' : 'Cobrados'} ({done.length})
           </Text>
           {done.map((t) => (
@@ -51,7 +51,7 @@ export function Grupos({
         </View>
       )}
       {items.length === 0 && (
-        <Text className="text-sm" style={{ color: T.muted }}>
+        <Text className="text-[16px]" style={{ color: T.muted }}>
           Sin movimientos todavía.
         </Text>
       )}

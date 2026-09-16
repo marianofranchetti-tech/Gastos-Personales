@@ -46,6 +46,10 @@ type DataContextType = {
   precios: ResumenProducto[];
   guardarPrecio: (p: NuevoPrecio, id?: number) => Promise<void>;
   eliminarPrecio: (id: number) => Promise<void>;
+  /** Precio abierto para editar, o null. */
+  precioEditando: ResumenProducto | null;
+  abrirPrecio: (p: ResumenProducto) => void;
+  cerrarPrecio: () => void;
   loading: boolean;
   guardar: (input: NuevaTransaccion) => Promise<void>;
   alternar: (id: number) => Promise<void>;
@@ -72,6 +76,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [fijosDelMes, setFijosDelMes] = useState(0);
   const [fuentes, setFuentes] = useState<{ nombre: string; monto: number }[]>([]);
   const [precios, setPrecios] = useState<ResumenProducto[]>([]);
+  const [precioEditando, setPrecioEditando] = useState<ResumenProducto | null>(null);
   const [loading, setLoading] = useState(true);
   const [editando, setEditando] = useState<TransaccionVista | null>(null);
 
@@ -196,6 +201,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         precios,
         guardarPrecio,
         eliminarPrecio,
+        precioEditando,
+        abrirPrecio: setPrecioEditando,
+        cerrarPrecio: () => setPrecioEditando(null),
         loading,
         guardar,
         alternar,

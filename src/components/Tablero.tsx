@@ -28,7 +28,7 @@ export function Tablero({
   return (
     <View style={{ gap: 12 }}>
       <View>
-        <Text className="text-sm font-bold mb-2" style={{ color: T.text }}>
+        <Text className="text-[16px] font-bold mb-2" style={{ color: T.text }}>
           {titulo}
         </Text>
         <View className="rounded-lg p-4 border" style={{ backgroundColor: T.surface, borderColor: T.border }}>
