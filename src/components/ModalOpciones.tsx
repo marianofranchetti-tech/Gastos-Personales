@@ -40,11 +40,11 @@ export function ModalOpciones({
           style={{ backgroundColor: T.bg, borderColor: T.border, gap: 10 }}
           onPress={(e) => e.stopPropagation()}
         >
-          <Text className="text-base font-bold" style={{ color: T.text }}>
+          <Text className="text-[17px] font-bold" style={{ color: T.text }}>
             {titulo}
           </Text>
           {mensaje && (
-            <Text className="text-sm" style={{ color: T.muted }}>
+            <Text className="text-[16px]" style={{ color: T.muted }}>
               {mensaje}
             </Text>
           )}
@@ -61,13 +61,13 @@ export function ModalOpciones({
                 }}
               >
                 <Text
-                  className="font-semibold text-sm"
+                  className="font-semibold text-[16px]"
                   style={{ color: o.destructiva ? T.danger : T.text }}
                 >
                   {o.label}
                 </Text>
                 {o.detalle && (
-                  <Text className="text-xs mt-0.5" style={{ color: T.muted }}>
+                  <Text className="text-[14px] mt-0.5" style={{ color: T.muted }}>
                     {o.detalle}
                   </Text>
                 )}
@@ -76,7 +76,7 @@ export function ModalOpciones({
           </View>
 
           <Pressable onPress={onCancelar} className="rounded-lg py-3 mt-1" style={{ backgroundColor: T.surface2 }}>
-            <Text className="text-center font-semibold text-sm" style={{ color: T.text }}>
+            <Text className="text-center font-semibold text-[16px]" style={{ color: T.text }}>
               Cancelar
             </Text>
           </Pressable>

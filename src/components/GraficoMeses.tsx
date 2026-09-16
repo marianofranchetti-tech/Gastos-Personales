@@ -54,7 +54,7 @@ export function GraficoMeses({
       <View>
         {/* Techo del eje: el valor más alto, redondeado */}
         {hayDatos && (
-          <Text className="text-[10px] mb-1" style={{ color: T.muted }}>
+          <Text className="text-[13px] mb-1" style={{ color: T.muted }}>
             {fmt(tope, moneda)}
           </Text>
         )}
@@ -86,7 +86,7 @@ export function GraficoMeses({
           {datos.map((m) => (
             <View key={m.mes} className="flex-1 items-center">
               <Text
-                className="text-[10px]"
+                className="text-[13px]"
                 style={{ color: m.actual ? T.primaryLight : T.muted, fontWeight: m.actual ? '700' : '400' }}
               >
                 {cortoDeMes(m.mes)}
@@ -96,7 +96,7 @@ export function GraficoMeses({
         </View>
       </View>
 
-      <Text className="text-[11px]" style={{ color: T.muted }}>
+      <Text className="text-[14px]" style={{ color: T.muted }}>
         {hayDatos
           ? 'A la derecha del mes en curso es proyección, no plata que ya se movió.'
           : 'Todavía no hay movimientos en estos meses. Las barras aparecen a medida que cargás.'}
@@ -124,7 +124,7 @@ function Clave({ color, texto }: { color: string; texto: string }) {
   return (
     <View className="flex-row items-center" style={{ gap: 5 }}>
       <View style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: color }} />
-      <Text className="text-[11px]" style={{ color: T.muted }}>
+      <Text className="text-[14px]" style={{ color: T.muted }}>
         {texto}
       </Text>
     </View>

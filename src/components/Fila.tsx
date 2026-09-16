@@ -48,13 +48,13 @@ export function Fila({
         <Text className="font-medium" style={{ color: T.text }} numberOfLines={1}>
           {t.nombre}
         </Text>
-        <Text className="text-xs" style={{ color: T.muted }} numberOfLines={1}>
+        <Text className="text-[14px]" style={{ color: T.muted }} numberOfLines={1}>
           {t.rec
             ? `Recurrente · ${periodoNombre}${t.tipo === 'gasto' ? (t.fijo ? ' · Fijo' : ' · Variable') : ''}`
             : 'Eventual'}
         </Text>
         {t.venc ? (
-          <Text className="text-xs" style={{ color: vencido ? T.danger : T.teal }} numberOfLines={1}>
+          <Text className="text-[14px]" style={{ color: vencido ? T.danger : T.teal }} numberOfLines={1}>
             {t.tipo === 'gasto' ? 'Vence' : 'Esperado'} {diaCorto(t.venc)}
             {masOcurrencias > 0 ? (
               <Text style={{ color: T.muted }}> · +{masOcurrencias} más</Text>
@@ -72,7 +72,7 @@ export function Fila({
           className="px-2 py-0.5 rounded mt-0.5"
           style={{ backgroundColor: badge.bg }}
         >
-          <Text className="text-[11px] font-semibold" style={{ color: badge.col }}>
+          <Text className="text-[14px] font-semibold" style={{ color: badge.col }}>
             {badge.txt}
           </Text>
         </Pressable>

@@ -5,12 +5,14 @@ import { Grupos } from '../components/Grupos';
 import { Tablero } from '../components/Tablero';
 import { sugerenciasGastos } from '../lib/sugerencias';
 import { T } from '../lib/theme';
+import { useResumenMes } from '../lib/useResumenMes';
 
 export function GastosScreen() {
   const { gastos, alternar, abrirEdicion, estadisticas, fijosDelMes } = useData();
+  const { categorias } = useResumenMes();
   const sugerencias = useMemo(
-    () => sugerenciasGastos(estadisticas, fijosDelMes),
-    [estadisticas, fijosDelMes]
+    () => sugerenciasGastos({ datos: estadisticas, fijosDelMes, porCategoria: categorias }),
+    [estadisticas, fijosDelMes, categorias]
   );
 
   return (
@@ -27,7 +29,7 @@ export function GastosScreen() {
       />
 
       <View>
-        <Text className="text-sm font-bold mb-2" style={{ color: T.text }}>
+        <Text className="text-[16px] font-bold mb-2" style={{ color: T.text }}>
           Movimientos
         </Text>
         <Grupos items={gastos} tipo="gasto" onToggle={alternar} onEdit={abrirEdicion} />

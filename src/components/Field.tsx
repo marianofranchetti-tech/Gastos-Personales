@@ -5,7 +5,7 @@ import { T } from '../lib/theme';
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <View className="mb-3">
-      <Text className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: T.muted }}>
+      <Text className="font-semibold uppercase tracking-wide mb-1" style={{ color: T.muted, fontSize: 14 }}>
         {label}
       </Text>
       {children}
@@ -21,5 +21,5 @@ export const inputStyle = {
   borderRadius: 8,
   paddingHorizontal: 12,
   paddingVertical: 10,
-  fontSize: 16,
+  fontSize: 17,
 } as const;

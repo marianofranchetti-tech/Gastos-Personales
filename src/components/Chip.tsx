@@ -19,7 +19,7 @@ export function Chip({
         borderColor: on ? T.primary : T.border,
       }}
     >
-      <Text className="text-sm font-medium" style={{ color: on ? '#fff' : T.muted }}>
+      <Text className="text-[16px] font-medium" style={{ color: on ? '#fff' : T.muted }}>
         {children}
       </Text>
     </Pressable>
