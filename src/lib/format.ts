@@ -30,3 +30,18 @@ export function diaCorto(iso: string): string {
   const d = fechaISO(iso);
   return d ? d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : iso;
 }
+
+/** Acepta DD/MM/AAAA (o D/M/AAAA, con / - o .) y AAAA-MM-DD. Devuelve ISO o null. */
+export function aISO(txt: string): string | null {
+  const t = txt.trim();
+  let iso: string | null = null;
+  if (RE_FECHA.test(t)) iso = t;
+  else {
+    const m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+    if (m) iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  if (!iso) return null;
+  const [a, mes, dia] = iso.split('-').map(Number);
+  const f = new Date(a, mes - 1, dia);
+  return f.getFullYear() === a && f.getMonth() === mes - 1 && f.getDate() === dia ? iso : null;
+}
