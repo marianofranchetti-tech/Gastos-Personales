@@ -180,7 +180,8 @@ async function seed(db: SQLiteDatabase) {
     MONEDA_DEFAULT
   );
 
-  const dEste = (dia: number) => iso(new Date(hoy.getFullYear(), hoy.getMonth(), dia, 12));
+  const ahora = hoy();
+  const dEste = (dia: number) => iso(new Date(ahora.getFullYear(), ahora.getMonth(), dia, 12));
 
   const seedGastos = [
     { nombre: 'Alquiler', cat: 'casa', monto: 350000, fecha: dEste(1), rec: true, periodo: 'mensual', fijo: 1, estado: 'pagado', venc: dEste(5) },
