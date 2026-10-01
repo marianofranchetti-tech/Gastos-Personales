@@ -1,10 +1,10 @@
 /**
- * Serie de 9 meses para los gráficos de barras: el mes en curso, cuatro hacia
- * atrás y cuatro hacia adelante.
+ * Serie de 13 meses: el mes en curso, seis hacia atrás y seis hacia adelante.
+ * Alimenta las sugerencias y la salud financiera. Lo que se DIBUJA sale de
+ * lib/periodo.ts, que además deja elegir año, semana o día.
  *
  * Ventana móvil, no año calendario: así siempre tiene la misma forma y el mes
- * actual queda al centro. Nueve columnas entran sin scroll en un teléfono y
- * dejan aire entre barras; doce obligaban a adelgazarlas hasta lo ilegible.
+ * actual queda al centro.
  *
  * Los meses ya vividos salen de lo efectivamente registrado; los que faltan,
  * de la proyección. La frontera importa y el gráfico la marca: un mes pasado
@@ -18,8 +18,8 @@ import { MONEDA_DEFAULT } from '../lib/categorias';
 import { hoyISO, sumarMesesISO } from '../lib/fechasRecurrentes';
 import { calcularProyeccion } from './proyeccion';
 
-export const MESES_ATRAS = 4;
-export const MESES_ADELANTE = 4;
+export const MESES_ATRAS = 6;
+export const MESES_ADELANTE = 6;
 
 export type MesBarra = {
   mes: string; // 'YYYY-MM'
@@ -38,7 +38,7 @@ export const cortoDeMes = (mes: string) => CORTO[Number(mes.slice(5, 7)) - 1];
 /** '2026-09' -> "Sep '26", para cuando hace falta desambiguar el año. */
 export const cortoConAnio = (mes: string) => `${cortoDeMes(mes)} '${mes.slice(2, 4)}`;
 
-/** Los 9 meses de la ventana, en orden cronológico. */
+/** Los 13 meses de la ventana, en orden cronológico. */
 export function ventanaMeses(mesActual: string): string[] {
   const primero = sumarMesesISO(`${mesActual}-01`, -MESES_ATRAS).slice(0, 7);
   return Array.from({ length: MESES_ATRAS + 1 + MESES_ADELANTE }, (_, i) =>

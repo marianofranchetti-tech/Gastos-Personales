@@ -31,13 +31,17 @@ import {
 } from './precios';
 
 const HORIZONTE_PROYECCION_MESES = 6;
+/** Para los gráficos: alcanza para ver un año entero o navegar meses hacia adelante. */
+const HORIZONTE_GRAFICOS_MESES = 24;
 
 type DataContextType = {
   gastos: TransaccionVista[];
   ingresos: TransaccionVista[];
   porPagar: TransaccionVista[];
   proyeccion: ProyeccionPorMoneda;
-  /** Serie de 9 meses que alimenta los tres gráficos. */
+  /** Igual que proyeccion pero a 24 meses, para las barras futuras de los gráficos. */
+  proyeccionGraficos: ProyeccionPorMoneda;
+  /** Serie de 13 meses que alimenta sugerencias y salud financiera. */
   estadisticas: MesBarra[];
   /** Gasto del mes comprometido por reglas fijas. */
   fijosDelMes: number;
@@ -72,6 +76,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [ingresos, setIngresos] = useState<TransaccionVista[]>([]);
   const [porPagar, setPorPagar] = useState<TransaccionVista[]>([]);
   const [proyeccion, setProyeccion] = useState<ProyeccionPorMoneda>({});
+  const [proyeccionGraficos, setProyeccionGraficos] = useState<ProyeccionPorMoneda>({});
   const [estadisticas, setEstadisticas] = useState<MesBarra[]>([]);
   const [fijosDelMes, setFijosDelMes] = useState(0);
   const [fuentes, setFuentes] = useState<{ nombre: string; monto: number }[]>([]);
@@ -81,11 +86,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [editando, setEditando] = useState<TransaccionVista | null>(null);
 
   const refresh = useCallback(async () => {
-    const [g, i, pp, pr, est, fij, fue, pre] = await Promise.all([
+    const [g, i, pp, pr, prg, est, fij, fue, pre] = await Promise.all([
       getTransaccionesConRegla(db, 'gasto'),
       getTransaccionesConRegla(db, 'ingreso'),
       getPorPagar(db),
       calcularProyeccion(db, HORIZONTE_PROYECCION_MESES),
+      calcularProyeccion(db, HORIZONTE_GRAFICOS_MESES),
       estadisticasVentana(db),
       gastosFijosDelMes(db),
       fuentesDeIngreso(db),
@@ -95,6 +101,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setIngresos(i);
     setPorPagar(pp);
     setProyeccion(pr);
+    setProyeccionGraficos(prg);
     setEstadisticas(est);
     setFijosDelMes(fij);
     setFuentes(fue);
@@ -195,6 +202,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         ingresos,
         porPagar,
         proyeccion,
+        proyeccionGraficos,
         estadisticas,
         fijosDelMes,
         fuentes,
