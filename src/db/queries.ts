@@ -338,3 +338,34 @@ export async function limpiarDatos(db: SQLiteDatabase): Promise<void> {
     await db.runAsync('DELETE FROM reglas_recurrentes');
   });
 }
+
+// ---------------------------------------------------------------------------
+// Depurar por rango
+// ---------------------------------------------------------------------------
+
+/**
+ * Movimientos cuya fecha efectiva (vencimiento, o fecha si no vence) cae
+ * fuera de [desde, hasta]. Las reglas recurrentes no se tocan: solo generan
+ * dentro de la ventana de pendientes, así que no vuelven a crear lo borrado.
+ */
+const FUERA_DE_RANGO = `COALESCE(venc, fecha) < ? OR COALESCE(venc, fecha) > ?`;
+
+export async function contarFueraDeRango(
+  db: SQLiteDatabase,
+  desde: string,
+  hasta: string
+): Promise<{ antes: number; despues: number }> {
+  const r = await db.getFirstAsync<{ antes: number; despues: number }>(
+    `SELECT SUM(CASE WHEN COALESCE(venc, fecha) < ? THEN 1 ELSE 0 END) AS antes,
+            SUM(CASE WHEN COALESCE(venc, fecha) > ? THEN 1 ELSE 0 END) AS despues
+       FROM transacciones`,
+    desde,
+    hasta
+  );
+  return { antes: r?.antes ?? 0, despues: r?.despues ?? 0 };
+}
+
+export async function eliminarFueraDeRango(db: SQLiteDatabase, desde: string, hasta: string): Promise<number> {
+  const r = await db.runAsync(`DELETE FROM transacciones WHERE ${FUERA_DE_RANGO}`, desde, hasta);
+  return r.changes;
+}

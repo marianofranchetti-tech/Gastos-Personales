@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { alternarEstado, crearTransaccion, getPorPagar, marcarPagada } from './queries';
+import { alternarEstado, contarFueraDeRango, crearTransaccion, eliminarFueraDeRango, getPorPagar, marcarPagada } from './queries';
 import { setVentanaPendientes } from './config';
 import { baseVacia, insertarRegla, insertarTx } from '../test/fixtures';
 import type { DbFake } from '../test/dbFake';
@@ -131,5 +131,21 @@ describe('crearTransaccion', () => {
 
     const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM reglas_recurrentes');
     expect(n!.n).toBe(0);
+  });
+});
+describe('eliminarFueraDeRango', () => {
+  it('borra lo anterior a desde y lo posterior a hasta, por vencimiento', async () => {
+    await insertarTx(db, { nombre: 'Viejo', fecha: '2024-12-31', estado: 'pagado' });
+    await insertarTx(db, { nombre: 'Borde inicio', fecha: '2025-01-01', estado: 'pagado' });
+    await insertarTx(db, { nombre: 'Borde fin', fecha: '2027-06-30' });
+    await insertarTx(db, { nombre: 'Lejano', fecha: '2027-07-01' });
+    // Cargado dentro del rango pero vence afuera: manda el vencimiento.
+    await insertarTx(db, { nombre: 'Vence afuera', fecha: '2026-10-01', venc: '2028-01-10' });
+
+    expect(await contarFueraDeRango(db, '2025-01-01', '2027-06-30')).toEqual({ antes: 1, despues: 2 });
+    expect(await eliminarFueraDeRango(db, '2025-01-01', '2027-06-30')).toBe(3);
+
+    const quedan = await db.getAllAsync<{ nombre: string }>('SELECT nombre FROM transacciones ORDER BY id');
+    expect(quedan.map((q) => q.nombre)).toEqual(['Borde inicio', 'Borde fin']);
   });
 });
