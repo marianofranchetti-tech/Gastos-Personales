@@ -9,6 +9,8 @@ import {
   getPorPagar,
   getTransaccionesConRegla,
   limpiarDatos,
+  contarFueraDeRango,
+  eliminarFueraDeRango,
   marcarPagada,
   NuevaTransaccion,
   TransaccionVista,
@@ -66,6 +68,10 @@ type DataContextType = {
   editar: (id: number, input: NuevaTransaccion, alcance: Alcance) => Promise<void>;
   eliminar: (id: number, alcance: Alcance) => Promise<void>;
   limpiar: () => Promise<void>;
+  /** Cuántos movimientos quedan antes de `desde` y después de `hasta`. */
+  contarFuera: (desde: string, hasta: string) => Promise<{ antes: number; despues: number }>;
+  /** Borra los movimientos fuera de [desde, hasta]. Devuelve cuántos borró. */
+  depurar: (desde: string, hasta: string) => Promise<number>;
 };
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -195,6 +201,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [db, refresh]);
 
+  const contarFuera = useCallback((desde: string, hasta: string) => contarFueraDeRango(db, desde, hasta), [db]);
+
+  const depurar = useCallback(
+    async (desde: string, hasta: string) => {
+      const n = await eliminarFueraDeRango(db, desde, hasta);
+      await refresh();
+      return n;
+    },
+    [db, refresh]
+  );
+
   return (
     <DataContext.Provider
       value={{
@@ -223,6 +240,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         editar,
         eliminar,
         limpiar,
+        contarFuera,
+        depurar,
       }}
     >
       {children}
