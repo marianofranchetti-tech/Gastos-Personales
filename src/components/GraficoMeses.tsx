@@ -22,14 +22,19 @@ export type ModoGrafico = 'ambos' | 'ingresos' | 'egresos';
  * 4. El ancho de barra sale del ancho real del gráfico: 13 columnas tienen
  *    que entrar en un teléfono angosto y no verse ridículas en una PC.
  */
+export type ResumenGrafico = { etiqueta: string; ingresos: number; egresos: number; real: boolean };
+
 export function GraficoMeses({
   datos,
   modo = 'ambos',
   moneda = 'ARS',
+  resumen,
 }: {
   datos: Barra[];
   modo?: ModoGrafico;
   moneda?: string;
+  /** Total del período elegido, para mostrar cuando no hay columna tocada (vista Mes). */
+  resumen?: ResumenGrafico;
 }) {
   const [ancho, setAncho] = useState(0);
   const [tocado, setTocado] = useState<string | null>(null);
@@ -48,7 +53,9 @@ export function GraficoMeses({
   const hayFuturo = datos.some((m) => !m.real);
   const alto = (v: number) => (v <= 0 ? 0 : Math.max(2, (v / tope) * ALTO));
 
-  const foco = datos.find((m) => m.clave === tocado) ?? datos.find((m) => m.elegido) ?? datos.find((m) => m.actual);
+  const tocada = datos.find((m) => m.clave === tocado);
+  const foco: { etiqueta: string; titulo?: string; sub?: string; ingresos: number; egresos: number; real: boolean } | undefined =
+    tocada ?? resumen ?? datos.find((m) => m.elegido) ?? datos.find((m) => m.actual);
 
   return (
     <View style={{ gap: 10 }}>
@@ -62,8 +69,8 @@ export function GraficoMeses({
         {foco && hayDatos && (
           <Text style={{ color: T.muted, fontSize: 13 }}>
             <Text style={{ color: T.text, fontWeight: '600' }}>
-              {foco.etiqueta}
-              {foco.sub && foco.sub.startsWith("'") ? ` ${foco.sub}` : ''}
+              {foco.titulo ?? foco.etiqueta}
+              {!foco.titulo && foco.sub && foco.sub.startsWith("'") ? ` ${foco.sub}` : ''}
               {!foco.real ? ' (proy.)' : ''}
             </Text>
             {muestraIng && (
@@ -96,8 +103,11 @@ export function GraficoMeses({
               style={{
                 height: ALTO,
                 borderRadius: 6,
-                backgroundColor:
-                  m.clave === tocado ? T.surface2 : m.elegido ? T.primaryBadgeBg : 'transparent',
+                // El elegido va con borde, no con relleno: un relleno alto se
+                // confundía con una barra más.
+                borderWidth: 1,
+                borderColor: m.elegido ? T.primary : 'transparent',
+                backgroundColor: m.clave === tocado ? T.surface2 : 'transparent',
               }}
             >
               <View className="flex-row items-end justify-center" style={{ gap: 2, opacity: m.real ? 1 : 0.45 }}>
@@ -113,12 +123,19 @@ export function GraficoMeses({
         <View className="flex-row mt-1">
           {datos.map((m, i) => {
             const destacada = m.actual || m.elegido;
-            const visible = !etiquetasRalas || destacada || (datos.length - 1 - i) % 2 === 0;
+            const visible =
+              m.marca !== undefined
+                ? m.marca || destacada
+                : !etiquetasRalas || destacada || (datos.length - 1 - i) % 2 === 0;
             return (
               <View key={m.clave} className="flex-1 items-center">
                 <Text
-                  numberOfLines={1}
+                  // Con marcas (vista Mes, ~31 columnas) la etiqueta puede
+                  // desbordar su columna: las vecinas están ocultas.
+                  numberOfLines={m.marca === undefined ? 1 : undefined}
                   style={{
+                    width: m.marca === undefined ? undefined : 28,
+                    textAlign: 'center',
                     color: m.actual ? T.primaryLight : T.muted,
                     fontWeight: destacada ? '700' : '400',
                     fontSize: col < 26 ? 11 : 13,
@@ -128,7 +145,10 @@ export function GraficoMeses({
                   {m.etiqueta}
                 </Text>
                 {m.sub && (
-                  <Text numberOfLines={1} style={{ color: T.muted, fontSize: 10, opacity: visible || m.sub.startsWith("'") ? 1 : 0 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{ color: T.muted, fontSize: 10, opacity: (visible && m.marca === undefined) || m.sub.startsWith("'") ? 1 : 0 }}
+                  >
                     {m.sub}
                   </Text>
                 )}

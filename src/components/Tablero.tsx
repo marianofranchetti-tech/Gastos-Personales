@@ -5,6 +5,9 @@ import { SelectorPeriodo } from './SelectorPeriodo';
 import { Sugerencias } from './Sugerencias';
 import { Sugerencia } from '../lib/sugerencias';
 import { useBarras } from '../lib/useBarras';
+import { usePeriodo } from '../lib/PeriodoProvider';
+import { etiquetaPeriodo } from '../lib/periodo';
+import { hoyISO } from '../lib/fechasRecurrentes';
 import { T } from '../lib/theme';
 
 /**
@@ -29,6 +32,20 @@ export function Tablero({
   extra?: ReactNode;
 }) {
   const barras = useBarras(moneda);
+  const { g, ancla } = usePeriodo();
+  // En vista Mes las columnas son días: arriba va el total del mes, no un día suelto.
+  const resumen =
+    g === 'mes'
+      ? {
+          etiqueta: (() => {
+            const e = etiquetaPeriodo('mes', ancla, hoyISO());
+            return e.charAt(0).toUpperCase() + e.slice(1);
+          })(),
+          ingresos: barras.reduce((a, b) => a + b.ingresos, 0),
+          egresos: barras.reduce((a, b) => a + b.egresos, 0),
+          real: true,
+        }
+      : undefined;
   return (
     <View style={{ gap: 12 }}>
       <View style={{ gap: 8 }}>
@@ -37,7 +54,7 @@ export function Tablero({
         </Text>
         {selector && <SelectorPeriodo />}
         <View className="rounded-lg p-4 border" style={{ backgroundColor: T.surface, borderColor: T.border }}>
-          <GraficoMeses datos={barras} modo={modo} moneda={moneda} />
+          <GraficoMeses datos={barras} modo={modo} moneda={moneda} resumen={resumen} />
         </View>
       </View>
 
