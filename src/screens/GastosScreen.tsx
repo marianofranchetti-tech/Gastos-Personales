@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { useData } from '../db/DataProvider';
-import { Grupos } from '../components/Grupos';
+import { CalendarioMovimientos } from '../components/CalendarioMovimientos';
 import { Tablero } from '../components/Tablero';
 import { GraficoCategorias } from '../components/GraficoCategorias';
 import { sugerenciasGastos } from '../lib/sugerencias';
@@ -18,32 +18,35 @@ export function GastosScreen() {
     [estadisticas, fijosDelMes, categorias]
   );
 
+  const categoriasBloque = (
+    <View style={{ gap: 8 }}>
+      <Text className="text-[16px] font-bold" style={{ color: T.text }}>
+        Por categoría
+      </Text>
+      <GraficoCategorias />
+    </View>
+  );
+
+  // Arriba el análisis del período; abajo, a todo el ancho, el calendario.
   return (
-    <ScrollView className="flex-1" contentContainerStyle={contenido}>
+    <ScrollView className="flex-1" contentContainerStyle={[contenido, { gap: 24 }]}>
       <View style={{ flexDirection: pc ? 'row' : 'column', gap: pc ? 24 : 20, alignItems: 'flex-start' }}>
-      <View style={{ flex: pc ? 1 : undefined, width: pc ? undefined : '100%' }}>
-      <Tablero
-        titulo="Gastos por período"
-        modo="egresos"
-        sugerencias={sugerencias}
-        extra={
-          <View style={{ gap: 8 }}>
-            <Text className="text-[16px] font-bold" style={{ color: T.text }}>
-              Por categoría
-            </Text>
-            <GraficoCategorias />
-          </View>
-        }
-      />
-
+        <View style={{ flex: pc ? 1 : undefined, width: pc ? undefined : '100%' }}>
+          <Tablero
+            titulo="Gastos por período"
+            modo="egresos"
+            sugerencias={sugerencias}
+            extra={pc ? undefined : categoriasBloque}
+          />
+        </View>
+        {pc && <View style={{ flex: 1 }}>{categoriasBloque}</View>}
       </View>
 
-      <View style={{ flex: pc ? 1 : undefined, width: pc ? undefined : '100%' }}>
-        <Text className="text-[16px] font-bold mb-2" style={{ color: T.text }}>
-          Movimientos
+      <View style={{ gap: 8 }}>
+        <Text className="text-[16px] font-bold" style={{ color: T.text }}>
+          Calendario de gastos
         </Text>
-        <Grupos items={gastos} tipo="gasto" onToggle={alternar} onEdit={abrirEdicion} />
-      </View>
+        <CalendarioMovimientos items={gastos} tipo="gasto" onToggle={alternar} onEdit={abrirEdicion} />
       </View>
     </ScrollView>
   );
