@@ -1,39 +1,34 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo ============================================
+echo ==================================================
 echo  Subir el proyecto a GitHub
-echo ============================================
+echo ==================================================
 echo.
-echo Antes de seguir necesitas dos cosas:
+echo Repo:  marianofranchetti-tech/Gastos-Personales
+echo Rama:  main   (17 commits)
 echo.
-echo  1) Un repositorio PRIVADO y VACIO en github.com
-echo     (sin README, sin .gitignore, sin licencia)
+echo ATENCION: esto REEMPLAZA lo que hay hoy en el repo.
+echo El commit "Init" que esta alla ahora se pierde.
+echo Ese codigo es otro proyecto, no el de esta carpeta.
 echo.
-echo  2) Un token de acceso personal, que se usa en vez
-echo     de la contrasena. Se saca en:
-echo     github.com - Settings - Developer settings -
-echo     Personal access tokens - Tokens (classic)
-echo     Marcar el permiso "repo".
+echo Se va a abrir el navegador para autorizar con GitHub.
+echo Asegurate de entrar con la cuenta marianofranchetti-tech,
+echo NO con la de Bello Export, o el push va a fallar.
 echo.
 pause
 echo.
-set /p REPO="Pega la URL del repo (https://github.com/usuario/repo.git): "
-if "%REPO%"=="" goto :fin
+git push --force -u origin main
 echo.
-git remote remove origin 2>nul
-git remote add origin %REPO%
-echo Remoto configurado:
-git remote -v
-echo.
-echo Subiendo... te va a pedir usuario y el TOKEN como contrasena.
-echo.
-git push -u origin feat/recurrentes
-echo.
-echo ============================================
-echo  Si termino bien, ya podes ir a Render:
-echo  New - Blueprint - elegir este repo
-echo  Lee render.yaml solo, no configures nada.
-echo ============================================
-:fin
+if errorlevel 1 (
+  echo ==================================================
+  echo  FALLO. Copiá el error de arriba y pasamelo.
+  echo ==================================================
+) else (
+  echo ==================================================
+  echo  LISTO. Ahora en Render:
+  echo   New - Blueprint - elegir Gastos-Personales
+  echo  Lee render.yaml solo, no configures nada a mano.
+  echo ==================================================
+)
 pause
