@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { useData } from '../db/DataProvider';
-import { Grupos } from '../components/Grupos';
+import { CalendarioMovimientos } from '../components/CalendarioMovimientos';
 import { Tablero } from '../components/Tablero';
 import { sugerenciasIngresos } from '../lib/sugerencias';
 import { T } from '../lib/theme';
@@ -20,23 +20,14 @@ export function IngresosScreen() {
   );
 
   return (
-    <ScrollView className="flex-1" contentContainerStyle={contenido}>
-      <View style={{ flexDirection: pc ? 'row' : 'column', gap: pc ? 24 : 20, alignItems: 'flex-start' }}>
-      <View style={{ flex: pc ? 1 : undefined, width: pc ? undefined : '100%' }}>
-      <Tablero
-        titulo="Ingresos por período"
-        modo="ingresos"
-        sugerencias={sugerencias}
-      />
+    <ScrollView className="flex-1" contentContainerStyle={[contenido, { gap: 24 }]}>
+      <Tablero titulo="Ingresos por período" modo="ingresos" sugerencias={sugerencias} />
 
-      </View>
-
-      <View style={{ flex: pc ? 1 : undefined, width: pc ? undefined : '100%' }}>
-        <Text className="text-[16px] font-bold mb-2" style={{ color: T.text }}>
-          Movimientos
+      <View style={{ gap: 8 }}>
+        <Text className="text-[16px] font-bold" style={{ color: T.text }}>
+          Calendario de ingresos
         </Text>
-        <Grupos items={ingresos} tipo="ingreso" onToggle={alternar} onEdit={abrirEdicion} />
-      </View>
+        <CalendarioMovimientos items={ingresos} tipo="ingreso" onToggle={alternar} onEdit={abrirEdicion} />
       </View>
     </ScrollView>
   );

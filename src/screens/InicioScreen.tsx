@@ -5,6 +5,7 @@ import { Tablero } from '../components/Tablero';
 import { BalanceMes } from '../components/BalanceMes';
 import { GraficoCategorias } from '../components/GraficoCategorias';
 import { ModalOpciones } from '../components/ModalOpciones';
+import { ModalDepurar } from '../components/ModalDepurar';
 import { SaludFinanciera } from '../components/SaludFinanciera';
 import { SelectorPeriodo } from '../components/SelectorPeriodo';
 import { T } from '../lib/theme';
@@ -31,6 +32,7 @@ export function InicioScreen() {
     [porPagar]
   );
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
+  const [depurando, setDepurando] = useState(false);
 
   const sugerencias = useMemo(
     () =>
@@ -82,6 +84,13 @@ export function InicioScreen() {
           {columnaPeriodo}
         </>
       )}
+
+      <Pressable onPress={() => setDepurando(true)} className="pt-3">
+        <Text className="text-[14px] text-center" style={{ color: T.muted }}>
+          Conservar solo un rango de fechas
+        </Text>
+      </Pressable>
+      {depurando && <ModalDepurar onClose={() => setDepurando(false)} />}
 
       {/* Los datos de ejemplo vienen de fábrica y no son tuyos. */}
       <Pressable onPress={() => setConfirmandoBorrado(true)} className="py-3">
