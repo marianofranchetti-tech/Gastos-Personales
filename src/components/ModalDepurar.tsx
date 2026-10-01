@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { useData } from '../db/DataProvider';
-import { RE_FECHA } from '../lib/format';
+import { aISO } from '../lib/format';
 import { T } from '../lib/theme';
 import { Field, inputStyle } from './Field';
 
@@ -19,16 +19,26 @@ export function ModalDepurar({ onClose }: { onClose: () => void }) {
   const [conteo, setConteo] = useState<{ antes: number; despues: number } | null>(null);
   const [hecho, setHecho] = useState<number | null>(null);
 
-  const validas = RE_FECHA.test(desde) && RE_FECHA.test(hasta) && desde <= hasta;
+  const d = aISO(desde);
+  const h = aISO(hasta);
+  const validas = !!d && !!h && d <= h;
+  const error =
+    desde.length >= 8 && !d
+      ? '"Desde" no es una fecha válida (DD/MM/AAAA).'
+      : hasta.length >= 8 && !h
+        ? '"Hasta" no es una fecha válida (DD/MM/AAAA).'
+        : d && h && d > h
+          ? '"Desde" tiene que ser anterior a "Hasta".'
+          : null;
 
   useEffect(() => {
     let vivo = true;
     setConteo(null);
-    if (validas) contarFuera(desde, hasta).then((c) => vivo && setConteo(c));
+    if (d && h && validas) contarFuera(d, h).then((c) => vivo && setConteo(c));
     return () => {
       vivo = false;
     };
-  }, [desde, hasta, validas, contarFuera]);
+  }, [d, h, validas, contarFuera]);
 
   const total = (conteo?.antes ?? 0) + (conteo?.despues ?? 0);
 
@@ -52,15 +62,20 @@ export function ModalDepurar({ onClose }: { onClose: () => void }) {
               <View className="flex-row" style={{ gap: 10 }}>
                 <View className="flex-1">
                   <Field label="Desde">
-                    <TextInput value={desde} onChangeText={setDesde} placeholder="AAAA-MM-DD" placeholderTextColor={T.muted} style={inputStyle} />
+                    <TextInput value={desde} onChangeText={setDesde} placeholder="DD/MM/AAAA" placeholderTextColor={T.muted} style={inputStyle} />
                   </Field>
                 </View>
                 <View className="flex-1">
                   <Field label="Hasta">
-                    <TextInput value={hasta} onChangeText={setHasta} placeholder="AAAA-MM-DD" placeholderTextColor={T.muted} style={inputStyle} />
+                    <TextInput value={hasta} onChangeText={setHasta} placeholder="DD/MM/AAAA" placeholderTextColor={T.muted} style={inputStyle} />
                   </Field>
                 </View>
               </View>
+              {error && (
+                <Text className="text-[15px]" style={{ color: T.danger }}>
+                  {error}
+                </Text>
+              )}
               {conteo && (
                 <Text className="text-[15px]" style={{ color: total > 0 ? T.danger : T.muted }}>
                   {total > 0
@@ -70,7 +85,7 @@ export function ModalDepurar({ onClose }: { onClose: () => void }) {
               )}
               <Pressable
                 disabled={!validas || total === 0}
-                onPress={async () => setHecho(await depurar(desde, hasta))}
+                onPress={async () => d && h && setHecho(await depurar(d, h))}
                 className="rounded-lg py-3 border"
                 style={{ borderColor: T.danger, backgroundColor: T.surface, opacity: validas && total > 0 ? 1 : 0.4 }}
               >
@@ -94,3 +109,4 @@ export function ModalDepurar({ onClose }: { onClose: () => void }) {
     </Modal>
   );
 }
+
