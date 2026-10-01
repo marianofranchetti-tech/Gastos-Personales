@@ -32,12 +32,12 @@ export function ModalOpciones({
     <Modal transparent animationType="fade" visible onRequestClose={onCancelar}>
       <Pressable
         className="flex-1 justify-end"
-        style={{ backgroundColor: 'rgba(0,0,0,.6)' }}
+        style={{ backgroundColor: T.overlay }}
         onPress={onCancelar}
       >
         <Pressable
           className="rounded-t-2xl px-5 pt-5 pb-8 border-t"
-          style={{ backgroundColor: T.bg, borderColor: T.border, gap: 10 }}
+          style={{ width: '100%', maxWidth: 640, alignSelf: 'center', backgroundColor: T.bg, borderColor: T.border, gap: 10 }}
           onPress={(e) => e.stopPropagation()}
         >
           <Text className="text-[17px] font-bold" style={{ color: T.text }}>

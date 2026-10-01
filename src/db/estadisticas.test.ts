@@ -21,29 +21,29 @@ const porMes = (s: Awaited<ReturnType<typeof estadisticasVentana>>) =>
   Object.fromEntries(s.map((m) => [m.mes, [m.ingresos, m.egresos]]));
 
 describe('ventanaMeses', () => {
-  it('son 9 meses con el actual al centro', () => {
+  it('son 13 meses con el actual al centro', () => {
     expect(ventanaMeses('2026-09')).toEqual([
-      '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
-      '2026-10', '2026-11', '2026-12', '2027-01',
+      '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
+      '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03',
     ]);
   });
 
   it('cruza el fin de año hacia atrás sin romperse', () => {
-    expect(ventanaMeses('2026-02')[0]).toBe('2025-10');
+    expect(ventanaMeses('2026-02')[0]).toBe('2025-08');
   });
 });
 
 describe('estadisticasVentana', () => {
-  it('devuelve siempre 9 meses, aunque no haya ningún dato', async () => {
+  it('devuelve siempre 13 meses, aunque no haya ningún dato', async () => {
     const s = await estadisticasVentana(db);
-    expect(s).toHaveLength(9);
+    expect(s).toHaveLength(13);
     expect(s.every((m) => m.ingresos === 0 && m.egresos === 0)).toBe(true);
   });
 
   it('marca cuáles son reales y cuál es el mes en curso', async () => {
     const s = await estadisticasVentana(db);
     expect(s.filter((m) => m.real).map((m) => m.mes)).toEqual([
-      '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
+      '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
     ]);
     expect(s.filter((m) => m.actual).map((m) => m.mes)).toEqual(['2026-09']);
   });

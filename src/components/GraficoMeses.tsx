@@ -1,120 +1,163 @@
-import { Text, View } from 'react-native';
-import { cortoDeMes, MesBarra } from '../db/estadisticas';
+import { useState } from 'react';
+import { LayoutChangeEvent, Pressable, Text, View } from 'react-native';
+import { Barra } from '../lib/periodo';
 import { fmt } from '../lib/format';
 import { T } from '../lib/theme';
 
-const ALTO = 132;
-const ANCHO_BARRA_DOBLE = 9;
-const ANCHO_BARRA_SIMPLE = 16;
+const ALTO = 150;
 
 export type ModoGrafico = 'ambos' | 'ingresos' | 'egresos';
 
 /**
- * Nueve meses en columnas: el actual al centro, cuatro atrás y cuatro adelante.
+ * Barras de ingresos y gastos por columna (meses, semanas o días según el
+ * período elegido).
  *
- * Tres decisiones que no son estéticas:
+ * Decisiones que no son estéticas:
  *
- * 1. Las barras futuras van a media opacidad y hay una línea vertical en el
- *    corte. Son proyección, no hechos. Dibujarlas iguales sería mentir.
- * 2. El único número es el techo del eje. Etiquetar barras además de eso
- *    repetía el mismo valor tres veces cuando varios meses empataban arriba.
- * 3. Un mes en cero se dibuja en cero, sin barra. El hueco es el dato: así se
- *    ve de un vistazo desde cuándo hay historia cargada.
+ * 1. Las barras futuras van a media opacidad. Son proyección, no hechos.
+ *    Dibujarlas iguales sería mentir.
+ * 2. El único número fijo es el techo del eje. El detalle de una columna se
+ *    ve tocándola: con 13 columnas, etiquetar cada barra es ruido.
+ * 3. Un período en cero se dibuja en cero, sin barra. El hueco es el dato.
+ * 4. El ancho de barra sale del ancho real del gráfico: 13 columnas tienen
+ *    que entrar en un teléfono angosto y no verse ridículas en una PC.
  */
 export function GraficoMeses({
   datos,
   modo = 'ambos',
   moneda = 'ARS',
 }: {
-  datos: MesBarra[];
+  datos: Barra[];
   modo?: ModoGrafico;
   moneda?: string;
 }) {
+  const [ancho, setAncho] = useState(0);
+  const [tocado, setTocado] = useState<string | null>(null);
+
   const muestraIng = modo === 'ambos' || modo === 'ingresos';
   const muestraEgr = modo === 'ambos' || modo === 'egresos';
-  const anchoBarra = modo === 'ambos' ? ANCHO_BARRA_DOBLE : ANCHO_BARRA_SIMPLE;
 
-  const valores = datos.flatMap((m) => [
-    muestraIng ? m.ingresos : 0,
-    muestraEgr ? m.egresos : 0,
-  ]);
+  const col = ancho > 0 && datos.length > 0 ? ancho / datos.length : 24;
+  const porBarra = modo === 'ambos' ? (col - 6) / 2 : col - 8;
+  const anchoBarra = Math.max(4, Math.min(modo === 'ambos' ? 18 : 30, porBarra));
+  const etiquetasRalas = col < 30;
+
+  const valores = datos.flatMap((m) => [muestraIng ? m.ingresos : 0, muestraEgr ? m.egresos : 0]);
   const tope = Math.max(...valores, 1);
   const hayDatos = valores.some((v) => v > 0);
+  const hayFuturo = datos.some((m) => !m.real);
   const alto = (v: number) => (v <= 0 ? 0 : Math.max(2, (v / tope) * ALTO));
+
+  const foco = datos.find((m) => m.clave === tocado) ?? datos.find((m) => m.elegido) ?? datos.find((m) => m.actual);
 
   return (
     <View style={{ gap: 10 }}>
-      {modo === 'ambos' && (
-        <View className="flex-row" style={{ gap: 14 }}>
-          <Clave color={T.teal} texto="Ingresos" />
-          <Clave color={T.danger} texto="Gastos" />
-        </View>
-      )}
+      <View style={{ gap: 6 }}>
+        {modo === 'ambos' && (
+          <View className="flex-row" style={{ gap: 14 }}>
+            <Clave color={T.teal} texto="Ingresos" />
+            <Clave color={T.danger} texto="Gastos" />
+          </View>
+        )}
+        {foco && hayDatos && (
+          <Text style={{ color: T.muted, fontSize: 13 }}>
+            <Text style={{ color: T.text, fontWeight: '600' }}>
+              {foco.etiqueta}
+              {foco.sub && foco.sub.startsWith("'") ? ` ${foco.sub}` : ''}
+              {!foco.real ? ' (proy.)' : ''}
+            </Text>
+            {muestraIng && (
+              <Text style={{ color: T.teal }}>{`  ↑ ${fmt(foco.ingresos, moneda)}`}</Text>
+            )}
+            {muestraEgr && (
+              <Text style={{ color: T.danger }}>{`  ↓ ${fmt(foco.egresos, moneda)}`}</Text>
+            )}
+          </Text>
+        )}
+      </View>
 
       <View>
-        {/* Techo del eje: el valor más alto, redondeado */}
         {hayDatos && (
           <Text className="text-[13px] mb-1" style={{ color: T.muted }}>
             {fmt(tope, moneda)}
           </Text>
         )}
 
-        <View className="flex-row items-end" style={{ height: ALTO }}>
-          {datos.map((m) => {
+        <View
+          className="flex-row items-end"
+          style={{ height: ALTO }}
+          onLayout={(e: LayoutChangeEvent) => setAncho(e.nativeEvent.layout.width)}
+        >
+          {datos.map((m) => (
+            <Pressable
+              key={m.clave}
+              onPress={() => setTocado(m.clave === tocado ? null : m.clave)}
+              className="flex-1 items-center justify-end"
+              style={{
+                height: ALTO,
+                borderRadius: 6,
+                backgroundColor:
+                  m.clave === tocado ? T.surface2 : m.elegido ? T.primaryBadgeBg : 'transparent',
+              }}
+            >
+              <View className="flex-row items-end justify-center" style={{ gap: 2, opacity: m.real ? 1 : 0.45 }}>
+                {muestraIng && <Columna alto={alto(m.ingresos)} ancho={anchoBarra} color={T.teal} />}
+                {muestraEgr && <Columna alto={alto(m.egresos)} ancho={anchoBarra} color={T.danger} />}
+              </View>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={{ height: 1, backgroundColor: T.border }} />
+
+        <View className="flex-row mt-1">
+          {datos.map((m, i) => {
+            const destacada = m.actual || m.elegido;
+            const visible = !etiquetasRalas || destacada || (datos.length - 1 - i) % 2 === 0;
             return (
-              <View key={m.mes} className="flex-1 items-center justify-end" style={{ height: ALTO }}>
-                <View
-                  className="flex-row items-end justify-center"
-                  style={{ gap: 2, opacity: m.real ? 1 : 0.45 }}
+              <View key={m.clave} className="flex-1 items-center">
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: m.actual ? T.primaryLight : T.muted,
+                    fontWeight: destacada ? '700' : '400',
+                    fontSize: col < 26 ? 11 : 13,
+                    opacity: visible ? 1 : 0,
+                  }}
                 >
-                  {muestraIng && (
-                    <Barra alto={alto(m.ingresos)} ancho={anchoBarra} color={T.teal} />
-                  )}
-                  {muestraEgr && (
-                    <Barra alto={alto(m.egresos)} ancho={anchoBarra} color={T.danger} />
-                  )}
-                </View>
+                  {m.etiqueta}
+                </Text>
+                {m.sub && (
+                  <Text numberOfLines={1} style={{ color: T.muted, fontSize: 10, opacity: visible || m.sub.startsWith("'") ? 1 : 0 }}>
+                    {m.sub}
+                  </Text>
+                )}
               </View>
             );
           })}
         </View>
-
-        {/* Línea de base: sostiene las barras y marca el cero */}
-        <View style={{ height: 1, backgroundColor: T.border }} />
-
-        <View className="flex-row mt-1">
-          {datos.map((m) => (
-            <View key={m.mes} className="flex-1 items-center">
-              <Text
-                className="text-[13px]"
-                style={{ color: m.actual ? T.primaryLight : T.muted, fontWeight: m.actual ? '700' : '400' }}
-              >
-                {cortoDeMes(m.mes)}
-              </Text>
-            </View>
-          ))}
-        </View>
       </View>
 
       <Text className="text-[14px]" style={{ color: T.muted }}>
-        {hayDatos
-          ? 'A la derecha del mes en curso es proyección, no plata que ya se movió.'
-          : 'Todavía no hay movimientos en estos meses. Las barras aparecen a medida que cargás.'}
+        {!hayDatos
+          ? 'Todavía no hay movimientos en este período. Las barras aparecen a medida que cargás.'
+          : hayFuturo
+            ? 'Las barras más claras son proyección o vencimientos que todavía no pasaron. Tocá una columna para ver el detalle.'
+            : 'Tocá una columna para ver el detalle.'}
       </Text>
     </View>
   );
 }
 
-function Barra({ alto, ancho, color }: { alto: number; ancho: number; color: string }) {
+function Columna({ alto, ancho, color }: { alto: number; ancho: number; color: string }) {
   return (
     <View
       style={{
         width: ancho,
         height: alto,
         backgroundColor: color,
-        // Punta redondeada arriba, recta en la base: la barra nace del cero.
-        borderTopLeftRadius: 4,
-        borderTopRightRadius: 4,
+        borderTopLeftRadius: Math.min(4, ancho / 2),
+        borderTopRightRadius: Math.min(4, ancho / 2),
       }}
     />
   );

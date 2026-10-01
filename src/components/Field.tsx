@@ -13,13 +13,20 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
+// Getters, no valores: así toma el color del tema activo en cada render.
 export const inputStyle = {
-  backgroundColor: T.surface2,
-  borderColor: T.border,
+  get backgroundColor() {
+    return T.surface2;
+  },
+  get borderColor() {
+    return T.border;
+  },
   borderWidth: 1,
-  color: T.text,
+  get color() {
+    return T.text;
+  },
   borderRadius: 8,
   paddingHorizontal: 12,
   paddingVertical: 10,
   fontSize: 17,
-} as const;
+};

@@ -7,6 +7,7 @@ import { CATS, MONEDA_DEFAULT } from '../lib/categorias';
 import { CAT_ICONS } from '../lib/iconos';
 import { diaCorto, fechaISO, fmt, hoy, iso } from '../lib/format';
 import { T } from '../lib/theme';
+import { useLayout } from '../lib/layout';
 import { NuevoPrecio, ResumenProducto } from '../db/precios';
 
 /**
@@ -15,14 +16,11 @@ import { NuevoPrecio, ResumenProducto } from '../db/precios';
  * lo que pagaste vale más que cualquier índice.
  */
 export function PreciosScreen() {
+  const { contenido } = useLayout();
   const { precios, abrirPrecio } = useData();
 
   return (
-    <ScrollView
-      className="flex-1 px-4 mt-4"
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ gap: 10, paddingBottom: 96 }}
-    >
+    <ScrollView className="flex-1" contentContainerStyle={[contenido, { gap: 10 }]}>
       <Text className="font-bold" style={{ color: T.text, fontSize: 16 }}>
         Precios registrados
       </Text>
@@ -135,10 +133,10 @@ export function PrecioForm({
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <Pressable className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,.6)' }} onPress={onClose}>
+      <Pressable className="flex-1 justify-end" style={{ backgroundColor: T.overlay }} onPress={onClose}>
         <Pressable
           className="rounded-t-2xl px-5 pt-5 pb-8 max-h-[88%] border-t"
-          style={{ backgroundColor: T.bg, borderColor: T.border }}
+          style={{ width: '100%', maxWidth: 640, alignSelf: 'center', backgroundColor: T.bg, borderColor: T.border }}
           onPress={(e) => e.stopPropagation()}
         >
           <View className="flex-row justify-between items-center mb-4">
@@ -150,7 +148,7 @@ export function PrecioForm({
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView>
             <Field label="Producto o servicio">
               <TextInput
                 style={inputStyle}

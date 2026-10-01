@@ -86,10 +86,10 @@ export function TransactionForm({
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <Pressable className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,.6)' }} onPress={onClose}>
+      <Pressable className="flex-1 justify-end" style={{ backgroundColor: T.overlay }} onPress={onClose}>
         <Pressable
           className="rounded-t-2xl px-5 pt-5 pb-8 max-h-[88%] border-t"
-          style={{ backgroundColor: T.bg, borderColor: T.border }}
+          style={{ width: '100%', maxWidth: 640, alignSelf: 'center', backgroundColor: T.bg, borderColor: T.border }}
           onPress={(e) => e.stopPropagation()}
         >
           <View className="flex-row justify-between items-center mb-4">
@@ -105,7 +105,7 @@ export function TransactionForm({
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView>
             <Field label="Nombre del concepto">
               <TextInput
                 style={inputStyle}
