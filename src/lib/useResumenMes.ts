@@ -9,15 +9,16 @@ export const cobrado = (t: TransaccionVista) => t.estado === 'pagado';
 
 export function useResumenMes() {
   const { gastos, ingresos } = useData();
+  const mes = mesActual();
 
   // Comparación por prefijo de string: no depende de que la fecha parsee bien
   const gMes = useMemo(
-    () => gastos.filter((t) => t.fecha.slice(0, 7) === mesActual),
-    [gastos]
+    () => gastos.filter((t) => t.fecha.slice(0, 7) === mes),
+    [gastos, mes]
   );
   const iMes = useMemo(
-    () => ingresos.filter((t) => t.fecha.slice(0, 7) === mesActual),
-    [ingresos]
+    () => ingresos.filter((t) => t.fecha.slice(0, 7) === mes),
+    [ingresos, mes]
   );
 
   // BALANCE REAL: sólo dinero efectivamente pagado / cobrado
