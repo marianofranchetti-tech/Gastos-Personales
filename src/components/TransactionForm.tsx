@@ -38,12 +38,12 @@ export function TransactionForm({
   const [nombre, setNombre] = useState(inicial?.nombre ?? '');
   const [monto, setMonto] = useState(inicial ? String(inicial.monto) : '');
   const [cat, setCat] = useState(inicial?.categoria_id ?? (esG ? 'comida' : 'salario'));
-  const [fecha, setFecha] = useState(inicial?.fecha ?? iso(hoy));
+  const [fecha, setFecha] = useState(inicial?.fecha ?? iso(hoy()));
   const [rec, setRec] = useState(!!inicial?.rec);
   const [periodo, setPeriodo] = useState<Periodo>(inicial?.periodo ?? 'mensual');
   const [fijo, setFijo] = useState(inicial ? inicial.fijo !== 0 : true);
   const [estado, setEstado] = useState<Estado>(inicial?.estado ?? 'pendiente');
-  const [venc, setVenc] = useState(inicial?.venc ?? inicial?.fecha ?? iso(hoy));
+  const [venc, setVenc] = useState(inicial?.venc ?? inicial?.fecha ?? iso(hoy()));
   const [preguntando, setPreguntando] = useState<'guardar' | 'eliminar' | null>(null);
 
   const cats = esG ? CATS : CATS_ING;
