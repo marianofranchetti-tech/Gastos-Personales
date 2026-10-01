@@ -43,7 +43,7 @@ export function HomeShell() {
               </Text>
             </View>
             <Text className="uppercase tracking-widest" style={{ color: T.muted, fontSize: 13 }}>
-              {hoy.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
+              {hoy().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
             </Text>
           </View>
         </View>
