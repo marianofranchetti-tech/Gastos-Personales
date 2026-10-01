@@ -32,17 +32,22 @@ describe('rangos y navegación', () => {
 });
 
 describe('serieBarras', () => {
-  it('vista Mes: 13 meses con el elegido al centro', () => {
-    const s = serieBarras({ g: 'mes', ancla: HOY, hoy: HOY, movs: [] });
-    expect(s).toHaveLength(13);
-    expect(s[0].clave).toBe('2026-04');
-    expect(s[6]).toMatchObject({ clave: '2026-10', actual: true, elegido: true, real: true });
-    expect(s[12]).toMatchObject({ clave: '2027-04', real: false });
-  });
-
-  it('meses pasados suman todo lo registrado; futuros salen de la proyección', () => {
+  it('vista Mes: un día por columna del mes elegido', () => {
     const s = serieBarras({
       g: 'mes', ancla: HOY, hoy: HOY,
+      movs: [g('2026-10-03', 100, { estado: 'pendiente' }), g('2026-10-03', 50), g('2026-09-30', 7), i('2026-10-01', 1000)],
+    });
+    expect(s).toHaveLength(31);
+    expect(s[0]).toMatchObject({ clave: '2026-10-01', actual: true, real: true, marca: true, ingresos: 1000 });
+    expect(s[2]).toMatchObject({ clave: '2026-10-03', egresos: 150, real: false, marca: false, titulo: 'sáb 3 oct' });
+    expect(s[4].marca).toBe(true);
+    expect(s.some((b) => b.elegido)).toBe(false);
+    expect(serieBarras({ g: 'mes', ancla: '2026-02-10', hoy: HOY, movs: [] })).toHaveLength(28);
+  });
+
+  it('vista Año: pasados suman lo registrado; futuros salen de la proyección', () => {
+    const s = serieBarras({
+      g: 'anio', ancla: HOY, hoy: HOY,
       movs: [g('2026-09-05', 100, { estado: 'pendiente' }), g('2026-09-20', 50), i('2026-09-01', 1000), g('2026-11-05', 999, { estado: 'pendiente' })],
       proyeccion: [{ mes: '2026-11', ingresos: 10, egresos: 20, diferencia: -10, acumulado: -10 }],
     });
@@ -64,10 +69,17 @@ describe('serieBarras', () => {
     expect(s[11]).toMatchObject({ clave: '2026-09-21', egresos: 7 });
   });
 
-  it('vista Día: 13 días, no mezcla monedas', () => {
-    const s = serieBarras({ g: 'dia', ancla: HOY, hoy: HOY, movs: [g(HOY, 10), g(HOY, 99, { moneda: 'USD' })] });
-    expect(s[12]).toMatchObject({ clave: HOY, egresos: 10, sub: 'J' });
-    expect(s[0].clave).toBe('2026-09-19');
+  it('vista Día: el elegido al centro, seis días por lado, no mezcla monedas', () => {
+    const s = serieBarras({
+      g: 'dia', ancla: HOY, hoy: HOY,
+      movs: [g(HOY, 10), g(HOY, 99, { moneda: 'USD' }), g('2026-10-03', 40, { estado: 'pendiente' })],
+    });
+    expect(s).toHaveLength(13);
+    expect(s[6]).toMatchObject({ clave: HOY, egresos: 10, sub: 'J', elegido: true, actual: true });
+    expect(s[0].clave).toBe('2026-09-25');
+    expect(s[12].clave).toBe('2026-10-07');
+    // Lo que vence en dos días se ve, como no-real.
+    expect(s[8]).toMatchObject({ clave: '2026-10-03', egresos: 40, real: false });
   });
 });
 

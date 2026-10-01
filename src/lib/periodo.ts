@@ -22,10 +22,10 @@ export const GRANULARIDADES: { id: Granularidad; nombre: string }[] = [
   { id: 'dia', nombre: 'Día' },
 ];
 
-/** Columnas del gráfico en vista Mes: el elegido al centro, seis por lado. */
-export const MESES_LADO = 6;
-/** Columnas en vista Semana y Día: el elegido y los doce anteriores. */
+/** Columnas en vista Semana: la elegida y las doce anteriores. */
 export const COLUMNAS = 13;
+/** Vista Día: el elegido al centro y seis días por lado, para ver lo que vence. */
+export const DIAS_LADO = 6;
 
 export type Rango = { desde: string; hasta: string }; // ambos inclusive
 
@@ -115,9 +115,22 @@ export type Barra = {
   actual: boolean;
   /** Contiene a la ancla: el período que se está mirando. */
   elegido: boolean;
+  /** Si viene, decide si la etiqueta se ve (vista Mes: 1, 5, 10, 15...). */
+  marca?: boolean;
+  /** Nombre completo para el detalle al tocar ("vie 3 oct", "28 sep – 4 oct"). */
+  titulo?: string;
 };
 
-type Cubo = { clave: string; desde: string; hasta: string; etiqueta: string; sub?: string; esMes: boolean };
+type Cubo = {
+  clave: string;
+  desde: string;
+  hasta: string;
+  etiqueta: string;
+  sub?: string;
+  esMes: boolean;
+  marca?: boolean;
+  titulo?: string;
+};
 
 function cubosMes(meses: string[]): Cubo[] {
   return meses.map((mes, i) => ({
@@ -138,10 +151,24 @@ function cubos(g: Granularidad, ancla: string): Cubo[] {
     );
   }
   if (g === 'mes') {
-    const primero = sumarMesesISO(`${ancla.slice(0, 7)}-01`, -MESES_LADO);
-    return cubosMes(
-      Array.from({ length: 2 * MESES_LADO + 1 }, (_, i) => sumarMesesISO(primero, i).slice(0, 7))
-    );
+    // Un día por columna: el mes elegido por dentro. La comparación entre
+    // meses ya la da la vista Año.
+    const primero = `${ancla.slice(0, 7)}-01`;
+    const dias = num(finDeMesISO(primero), 8, 10);
+    return Array.from({ length: dias }, (_, i) => {
+      const d = sumarDiasISO(primero, i);
+      const n = i + 1;
+      return {
+        clave: d,
+        desde: d,
+        hasta: d,
+        etiqueta: String(n),
+        sub: DIA_LETRA[diaSemanaISO(d)],
+        esMes: false,
+        marca: n === 1 || n % 5 === 0,
+        titulo: `${DIA_CORTO[diaSemanaISO(d)]} ${diaMes(d)}`,
+      };
+    });
   }
   if (g === 'semana') {
     const ultimo = lunesDe(ancla);
@@ -153,12 +180,21 @@ function cubos(g: Granularidad, ancla: string): Cubo[] {
         hasta: sumarDiasISO(desde, 6),
         etiqueta: `${num(desde, 8, 10)}/${num(desde, 5, 7)}`,
         esMes: false,
+        titulo: `${diaMes(desde)} – ${diaMes(sumarDiasISO(desde, 6))}`,
       };
     });
   }
-  return Array.from({ length: COLUMNAS }, (_, i) => {
-    const d = sumarDiasISO(ancla, -(COLUMNAS - 1 - i));
-    return { clave: d, desde: d, hasta: d, etiqueta: String(num(d, 8, 10)), sub: DIA_LETRA[diaSemanaISO(d)], esMes: false };
+  return Array.from({ length: 2 * DIAS_LADO + 1 }, (_, i) => {
+    const d = sumarDiasISO(ancla, i - DIAS_LADO);
+    return {
+      clave: d,
+      desde: d,
+      hasta: d,
+      etiqueta: String(num(d, 8, 10)),
+      sub: DIA_LETRA[diaSemanaISO(d)],
+      esMes: false,
+      titulo: `${DIA_CORTO[diaSemanaISO(d)]} ${diaMes(d)}`,
+    };
   });
 }
 
@@ -167,11 +203,11 @@ function cubos(g: Granularidad, ancla: string): Cubo[] {
  *
  * Misma regla que el gráfico de 9 meses de antes, para que los números no
  * cambien según la vista:
- * - Meses hasta el actual inclusive: todo lo registrado, pagado o no (un
- *   vencimiento impago igual es plata que se debe).
- * - Meses posteriores al actual: la proyección de las reglas recurrentes.
- * - Semanas y días: lo registrado. Los futuros solo tienen los vencimientos ya
- *   generados, y se dibujan como no-reales.
+ * - Año (columnas = meses): hasta el mes actual inclusive, todo lo registrado,
+ *   pagado o no (un vencimiento impago igual es plata que se debe). Meses
+ *   posteriores: la proyección de las reglas recurrentes.
+ * - Mes (columnas = días del mes), Semana y Día: lo registrado. Los días
+ *   futuros solo tienen los vencimientos cargados, y se dibujan como no-reales.
  */
 export function serieBarras({
   g,
@@ -219,7 +255,9 @@ export function serieBarras({
       egresos,
       real: c.esMes ? c.clave <= mesHoy : c.desde <= hoy,
       actual: c.desde <= hoy && hoy <= c.hasta,
-      elegido: g !== 'anio' && c.desde <= elegido.desde && elegido.hasta <= c.hasta,
+      elegido: g !== 'anio' && g !== 'mes' && c.desde <= elegido.desde && elegido.hasta <= c.hasta,
+      marca: c.marca,
+      titulo: c.titulo,
     };
   });
 }
