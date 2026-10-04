@@ -63,7 +63,7 @@ describe('migración — instalación nueva', () => {
     const db = crearDbFake();
     await migrateDbIfNeeded(db);
 
-    expect(await version(db)).toBe(5);
+    expect(await version(db)).toBe(6);
     expect(await columnas(db, 'reglas_recurrentes')).toEqual(
       expect.arrayContaining(['dia_semana', 'mes_anio', 'fecha_fin'])
     );
@@ -151,7 +151,7 @@ describe('migración v3 -> v4 sobre una base con datos', () => {
 
     const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM transacciones');
     expect(n!.n).toBe(3);
-    expect(await version(db)).toBe(5);
+    expect(await version(db)).toBe(6);
     db.cerrar();
   });
 });
@@ -175,7 +175,24 @@ describe('migración v4 -> v5 (precios)', () => {
     const tx = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM transacciones');
     expect(n!.n).toBe(0);
     expect(tx!.n).toBe(3);
-    expect(await version(db)).toBe(5);
+    expect(await version(db)).toBe(6);
+    db.cerrar();
+  });
+});
+
+describe('migración v5 -> v6 (categorías nuevas)', () => {
+  it('agrega Viajes, Tarjetas y Servicios a una base vieja', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+
+    const ids = await db.getAllAsync<{ id: string }>(
+      "SELECT id FROM categorias WHERE id IN ('viajes','tarj','serv') ORDER BY id"
+    );
+    expect(ids.map((r) => r.id)).toEqual(['serv', 'tarj', 'viajes']);
+    // Con la fila presente, la FK de transacciones acepta la categoría nueva.
+    await db.runAsync(
+      "INSERT INTO transacciones (tipo,nombre,categoria_id,monto,fecha) VALUES ('gasto','Pasaje','viajes',1000,'2026-10-03')"
+    );
     db.cerrar();
   });
 });
