@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { CATS, CATS_ING, MONEDA_DEFAULT } from '../lib/categorias';
 import { iso, hoy } from '../lib/format';
 
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 6;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
@@ -162,6 +162,19 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
     `);
 
     currentVersion = 5;
+  }
+
+  if (currentVersion === 5) {
+    // v6: categorías nuevas (Viajes, Tarjetas, Servicios). La UI lee CATS del
+    // código, pero transacciones.categoria_id tiene FK a categorias(id): una base
+    // ya instalada necesita las filas. OR IGNORE: inserta solo las que falten.
+    for (const [i, c] of [...CATS, ...CATS_ING].entries()) {
+      await db.runAsync(
+        'INSERT OR IGNORE INTO categorias (id, nombre, emoji, tipo, orden) VALUES (?, ?, ?, ?, ?)',
+        c.id, c.nombre, c.emoji, c.tipo, i
+      );
+    }
+    currentVersion = 6;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
