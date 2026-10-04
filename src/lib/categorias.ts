@@ -19,6 +19,9 @@ export const CATS: Categoria[] = [
   { id: 'salud', nombre: 'Salud', emoji: '🩺', tipo: 'gasto', color: '#EF5350' },
   { id: 'transp', nombre: 'Transporte', emoji: '🚌', tipo: 'gasto', color: '#FFD54F' },
   { id: 'prest', nombre: 'Préstamos', emoji: '🏦', tipo: 'gasto', color: '#C0A16B' },
+  { id: 'viajes', nombre: 'Viajes', emoji: '✈️', tipo: 'gasto', color: '#00897B' },
+  { id: 'tarj', nombre: 'Tarjetas', emoji: '💳', tipo: 'gasto', color: '#3949AB' },
+  { id: 'serv', nombre: 'Servicios', emoji: '💡', tipo: 'gasto', color: '#D4E157' },
 ];
 
 export const CATS_ING: Categoria[] = [
