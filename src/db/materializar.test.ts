@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { materializarRecurrentes } from './materializar';
 import { setVentanaPendientes } from './config';
-import { baseVacia, insertarRegla, vencimientos } from '../test/fixtures';
+import { baseVacia, insertarRegla, insertarTx, vencimientos } from '../test/fixtures';
 import type { DbFake } from '../test/dbFake';
 
 let db: DbFake;
@@ -215,5 +215,54 @@ describe('mover una ocurrencia de día (arrastre en el calendario)', () => {
     expect(await materializarRecurrentes(db)).toBe(0);
     const r = await db.getFirstAsync<{ venc_regla: string }>('SELECT venc_regla FROM transacciones WHERE id = ?', sep!.id);
     expect(r!.venc_regla).toBe('2026-09-05');
+  });
+
+  it('moverla al día de otra cuota de la misma regla no le quita el lugar a esa cuota', async () => {
+    // Regla del día 1. Con hoy 2026-09-01 el horizonte (45 días) llega al
+    // 16/10: existen septiembre y octubre, noviembre todavía no.
+    const { moverFecha } = await import('./queries');
+    const id = await insertarRegla(db, { periodo: 'mensual', dia_venc: 1 });
+    await materializarRecurrentes(db);
+    const oct = await db.getFirstAsync<{ id: number }>(
+      "SELECT id FROM transacciones WHERE regla_recurrente_id = ? AND venc = '2026-10-01'",
+      id
+    );
+    await moverFecha(db, oct!.id, '2026-11-01');
+
+    hoyEs('2026-10-20');
+    await materializarRecurrentes(db);
+
+    // Dos filas el 1/11: la de octubre movida y la propia de noviembre.
+    expect(await vencimientos(db, id)).toEqual(['2026-09-01', '2026-11-01', '2026-11-01', '2026-12-01']);
+  });
+});
+
+describe('moverFecha: qué pasa con la fecha del movimiento', () => {
+  it('si fecha y vencimiento coinciden, siguen coincidiendo', async () => {
+    const { moverFecha } = await import('./queries');
+    const tx = await insertarTx(db, { fecha: '2026-09-08', venc: '2026-09-08' });
+    await moverFecha(db, tx, '2026-09-15');
+    const r = await db.getFirstAsync<{ fecha: string; venc: string; venc_regla: string | null }>(
+      'SELECT fecha, venc, venc_regla FROM transacciones WHERE id = ?',
+      tx
+    );
+    expect(r).toEqual({ fecha: '2026-09-15', venc: '2026-09-15', venc_regla: null });
+  });
+
+  it('si había distancia entre fecha y vencimiento, se conserva', async () => {
+    const { moverFecha } = await import('./queries');
+    // Alquiler: fecha día 1, vence el 5. Se arrastra al 10 -> fecha pasa al 6.
+    const tx = await insertarTx(db, { fecha: '2026-09-01', venc: '2026-09-05' });
+    await moverFecha(db, tx, '2026-09-10');
+    const r = await db.getFirstAsync<{ fecha: string; venc: string }>('SELECT fecha, venc FROM transacciones WHERE id = ?', tx);
+    expect(r).toEqual({ fecha: '2026-09-06', venc: '2026-09-10' });
+  });
+
+  it('hacia atrás y cruzando de mes también', async () => {
+    const { moverFecha } = await import('./queries');
+    const tx = await insertarTx(db, { fecha: '2026-10-01', venc: '2026-10-05' });
+    await moverFecha(db, tx, '2026-09-28');
+    const r = await db.getFirstAsync<{ fecha: string; venc: string }>('SELECT fecha, venc FROM transacciones WHERE id = ?', tx);
+    expect(r).toEqual({ fecha: '2026-09-24', venc: '2026-09-28' });
   });
 });

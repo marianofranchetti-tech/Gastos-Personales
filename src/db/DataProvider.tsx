@@ -61,7 +61,7 @@ type DataContextType = {
   guardar: (input: NuevaTransaccion) => Promise<void>;
   alternar: (id: number) => Promise<void>;
   pagar: (id: number) => Promise<void>;
-  /** Pasa un movimiento a otro día (fecha y vencimiento). */
+  /** Pasa un movimiento a otro día (vencimiento; la fecha se corre igual). */
   mover: (id: number, fecha: string) => Promise<void>;
   refrescar: () => Promise<void>;
   /** Movimiento abierto para editar, o null. Lo consume HomeShell. */

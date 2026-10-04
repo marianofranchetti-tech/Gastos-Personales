@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, Text, View } from 'react-native';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { usePeriodo } from '../lib/PeriodoProvider';
@@ -22,10 +22,16 @@ export function SelectorMes() {
   const [abierto, setAbierto] = useState(false);
   const hoy = hoyISO();
 
-  // Esta pantalla siempre trabaja por mes.
+  // Esta pantalla siempre trabaja por mes, pero el período es compartido:
+  // al salir se devuelve la granularidad que el usuario tenía en las otras
+  // pantallas (si venía de Año, vuelve a Año). El mes elegido sí se comparte.
+  const previa = useRef(g);
   useEffect(() => {
-    if (g !== 'mes') setG('mes');
-  }, [g, setG]);
+    const anterior = previa.current;
+    setG('mes');
+    return () => setG(anterior);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const anio = Number(ancla.slice(0, 4));
   const mes = Number(ancla.slice(5, 7));

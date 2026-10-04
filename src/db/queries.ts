@@ -130,14 +130,18 @@ export async function alternarEstado(db: SQLiteDatabase, id: number) {
 }
 
 /**
- * Mueve un movimiento a otro día (arrastre en el calendario). Fecha y
- * vencimiento pasan juntos al día nuevo: el calendario ubica por vencimiento y
- * los gráficos por fecha, y tienen que coincidir.
+ * Mueve un movimiento a otro día (arrastre en el calendario). El calendario
+ * ubica por vencimiento, así que `venc` pasa al día nuevo. `fecha` se corre
+ * la misma cantidad de días: si eran iguales siguen iguales, y si había
+ * distancia entre ambas (alquiler con fecha día 1 y vencimiento día 5) esa
+ * distancia se conserva en vez de perderse.
  *
  * Si es una ocurrencia de regla, solo se mueve esta: la regla sigue igual y
  * venc_regla recuerda el día original para no regenerarlo.
  */
 export async function moverFecha(db: SQLiteDatabase, id: number, nueva: string): Promise<void> {
+  // En un UPDATE, SQLite evalúa todas las expresiones con los valores viejos
+  // de la fila, así que COALESCE(venc, fecha) es el día de origen en las tres.
   await db.runAsync(
     `UPDATE transacciones
         SET venc_regla = CASE
@@ -145,7 +149,10 @@ export async function moverFecha(db: SQLiteDatabase, id: number, nueva: string):
                 THEN COALESCE(venc_regla, venc, fecha)
               ELSE venc_regla
             END,
-            fecha = ?,
+            fecha = date(
+              fecha,
+              printf('%+d days', CAST(round(julianday(?) - julianday(COALESCE(venc, fecha))) AS INTEGER))
+            ),
             venc  = ?
       WHERE id = ?`,
     nueva,

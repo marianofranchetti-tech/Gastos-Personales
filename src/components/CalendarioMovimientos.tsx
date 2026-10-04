@@ -235,7 +235,9 @@ export function CalendarioMovimientos({
                       <View
                         key={d}
                         ref={(r) => {
-                          dnd.celdas.current[d] = r;
+                          // Solo los días del mes visible aceptan tarjetas: soltar
+                          // en un día gris la haría desaparecer de la vista.
+                          dnd.celdas.current[d] = fuera ? null : r;
                         }}
                         collapsable={false}
                         className="flex-1"
@@ -503,6 +505,10 @@ function MiniTarjeta({
   // Con el dedo, el arrastre se arma con una pulsación larga.
   const armado = useRef(false);
   const activo = useRef(false);
+  // true cuando el PanResponder ya tomó el gesto. Al tomarlo, React Native
+  // termina el Pressable y dispara su onPressOut: sin esta marca, ese
+  // onPressOut cancelaba el arrastre apenas el dedo empezaba a moverse.
+  const panTomado = useRef(false);
   const habilitado = !!onIniciarArrastre;
 
   const empezar = (x: number, y: number) => {
@@ -519,17 +525,20 @@ function MiniTarjeta({
         onMoveShouldSetPanResponderCapture: (_e, g) =>
           habilitado && (armado.current || (punteroFino && Math.abs(g.dx) + Math.abs(g.dy) > 6)),
         onPanResponderGrant: (_e, g) => {
+          panTomado.current = true;
           if (!activo.current) empezar(g.x0, g.y0);
         },
         onPanResponderMove: (_e, g) => onMoverArrastre?.(g.moveX, g.moveY),
         onPanResponderRelease: () => {
           armado.current = false;
           activo.current = false;
+          panTomado.current = false;
           onSoltar?.();
         },
         onPanResponderTerminate: () => {
           armado.current = false;
           activo.current = false;
+          panTomado.current = false;
           onSoltar?.(true);
         },
         onPanResponderTerminationRequest: () => false,
@@ -552,7 +561,10 @@ function MiniTarjeta({
             : undefined
         }
         onPressOut={() => {
-          // Pulsación larga sin mover: se suelta en el mismo lugar.
+          // Pulsación larga y soltar sin mover: el PanResponder nunca tomó el
+          // gesto, así que el arrastre se cancela acá. Si lo tomó, este
+          // onPressOut viene de la terminación del Pressable y se ignora.
+          if (panTomado.current) return;
           if (armado.current && activo.current) {
             armado.current = false;
             activo.current = false;
