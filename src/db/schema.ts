@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { CATS, CATS_ING, MONEDA_DEFAULT } from '../lib/categorias';
 import { iso, hoy } from '../lib/format';
 
-const DATABASE_VERSION = 6;
+const DATABASE_VERSION = 7;
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
@@ -175,6 +175,15 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
       );
     }
     currentVersion = 6;
+  }
+
+  if (currentVersion === 6) {
+    // v7: venc_regla guarda el vencimiento que generó la regla cuando el
+    // usuario mueve una ocurrencia a otra fecha (arrastrándola en el
+    // calendario o editándola). Sin esto, materializar no la reconoce como
+    // propia y vuelve a crear la del día original: aparece duplicada.
+    await db.execAsync('ALTER TABLE transacciones ADD COLUMN venc_regla TEXT;');
+    currentVersion = 7;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

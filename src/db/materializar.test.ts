@@ -178,3 +178,42 @@ describe('el ancla es el día 1 del mes, no hoy', () => {
     expect(generados.slice(0, 3)).toEqual(['2026-09-07', '2026-09-14', '2026-09-21']);
   });
 });
+
+describe('mover una ocurrencia de día (arrastre en el calendario)', () => {
+  it('no la vuelve a generar en el día original', async () => {
+    const { moverFecha } = await import('./queries');
+    const id = await insertarRegla(db, { periodo: 'mensual', dia_venc: 5 });
+    await materializarRecurrentes(db);
+
+    const sep = await db.getFirstAsync<{ id: number }>(
+      "SELECT id FROM transacciones WHERE regla_recurrente_id = ? AND venc = '2026-09-05'",
+      id
+    );
+    await moverFecha(db, sep!.id, '2026-09-12');
+    const insertadas = await materializarRecurrentes(db);
+
+    expect(insertadas).toBe(0);
+    expect(await vencimientos(db, id)).toEqual(['2026-09-12', '2026-10-05']);
+    const movida = await db.getFirstAsync<{ fecha: string; venc: string; venc_regla: string }>(
+      'SELECT fecha, venc, venc_regla FROM transacciones WHERE id = ?',
+      sep!.id
+    );
+    expect(movida).toEqual({ fecha: '2026-09-12', venc: '2026-09-12', venc_regla: '2026-09-05' });
+  });
+
+  it('moverla dos veces conserva el día original de la regla', async () => {
+    const { moverFecha } = await import('./queries');
+    const id = await insertarRegla(db, { periodo: 'mensual', dia_venc: 5 });
+    await materializarRecurrentes(db);
+    const sep = await db.getFirstAsync<{ id: number }>(
+      "SELECT id FROM transacciones WHERE regla_recurrente_id = ? AND venc = '2026-09-05'",
+      id
+    );
+    await moverFecha(db, sep!.id, '2026-09-12');
+    await moverFecha(db, sep!.id, '2026-09-20');
+
+    expect(await materializarRecurrentes(db)).toBe(0);
+    const r = await db.getFirstAsync<{ venc_regla: string }>('SELECT venc_regla FROM transacciones WHERE id = ?', sep!.id);
+    expect(r!.venc_regla).toBe('2026-09-05');
+  });
+});

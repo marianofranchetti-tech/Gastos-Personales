@@ -13,6 +13,8 @@ type Ctx = {
   setG: (g: Granularidad) => void;
   mover: (delta: number) => void;
   irAHoy: () => void;
+  /** Salta a una fecha puntual (ISO). */
+  irA: (iso: string) => void;
 };
 
 const PeriodoContext = createContext<Ctx | null>(null);
@@ -27,6 +29,7 @@ export function PeriodoProvider({ children }: { children: ReactNode }) {
       setG,
       mover: (d: number) => setAncla((a) => moverAncla(g, a, d)),
       irAHoy: () => setAncla(hoyISO()),
+      irA: setAncla,
     }),
     [g, ancla]
   );

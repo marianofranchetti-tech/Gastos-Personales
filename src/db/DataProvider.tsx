@@ -12,6 +12,7 @@ import {
   contarFueraDeRango,
   eliminarFueraDeRango,
   marcarPagada,
+  moverFecha,
   NuevaTransaccion,
   TransaccionVista,
 } from './queries';
@@ -60,6 +61,8 @@ type DataContextType = {
   guardar: (input: NuevaTransaccion) => Promise<void>;
   alternar: (id: number) => Promise<void>;
   pagar: (id: number) => Promise<void>;
+  /** Pasa un movimiento a otro día (fecha y vencimiento). */
+  mover: (id: number, fecha: string) => Promise<void>;
   refrescar: () => Promise<void>;
   /** Movimiento abierto para editar, o null. Lo consume HomeShell. */
   editando: TransaccionVista | null;
@@ -160,6 +163,14 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [db, refresh]
   );
 
+  const mover = useCallback(
+    async (id: number, fecha: string) => {
+      await moverFecha(db, id, fecha);
+      await refresh();
+    },
+    [db, refresh]
+  );
+
   const editar = useCallback(
     async (id: number, input: NuevaTransaccion, alcance: Alcance) => {
       await actualizarTransaccion(db, id, input, alcance);
@@ -233,6 +244,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         guardar,
         alternar,
         pagar,
+        mover,
         refrescar: refresh,
         editando,
         abrirEdicion: setEditando,

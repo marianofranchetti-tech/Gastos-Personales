@@ -129,6 +129,32 @@ export async function alternarEstado(db: SQLiteDatabase, id: number) {
   );
 }
 
+/**
+ * Mueve un movimiento a otro día (arrastre en el calendario). Fecha y
+ * vencimiento pasan juntos al día nuevo: el calendario ubica por vencimiento y
+ * los gráficos por fecha, y tienen que coincidir.
+ *
+ * Si es una ocurrencia de regla, solo se mueve esta: la regla sigue igual y
+ * venc_regla recuerda el día original para no regenerarlo.
+ */
+export async function moverFecha(db: SQLiteDatabase, id: number, nueva: string): Promise<void> {
+  await db.runAsync(
+    `UPDATE transacciones
+        SET venc_regla = CASE
+              WHEN regla_recurrente_id IS NOT NULL AND COALESCE(venc, fecha) <> ?
+                THEN COALESCE(venc_regla, venc, fecha)
+              ELSE venc_regla
+            END,
+            fecha = ?,
+            venc  = ?
+      WHERE id = ?`,
+    nueva,
+    nueva,
+    nueva,
+    id
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Por pagar / pagado
 // ---------------------------------------------------------------------------
@@ -272,7 +298,15 @@ export async function actualizarTransaccion(
   await db.withTransactionAsync(async () => {
     await db.runAsync(
       `UPDATE transacciones
-          SET nombre = ?, categoria_id = ?, monto = ?, moneda = ?, fecha = ?, venc = ?,
+          SET nombre = ?, categoria_id = ?, monto = ?, moneda = ?, fecha = ?,
+              -- Si una ocurrencia de regla cambia de día, recordamos el original
+              -- para que materializar no la vuelva a crear (ver schema v7).
+              venc_regla = CASE
+                WHEN regla_recurrente_id IS NOT NULL AND venc IS NOT NULL AND venc <> ?
+                  THEN COALESCE(venc_regla, venc)
+                ELSE venc_regla
+              END,
+              venc = ?,
               estado = ?,
               pagado_en = CASE WHEN ? = 'pagado' THEN COALESCE(pagado_en, ?) ELSE NULL END
         WHERE id = ?`,
@@ -281,6 +315,7 @@ export async function actualizarTransaccion(
       input.monto,
       moneda,
       input.fecha,
+      venc,
       venc,
       estado,
       estado,

@@ -62,8 +62,10 @@ export async function materializarRecurrentes(db: SQLiteDatabase): Promise<numbe
 
       for (const venc of fechas) {
         const existente = await db.getFirstAsync<{ id: number }>(
-          'SELECT id FROM transacciones WHERE regla_recurrente_id = ? AND venc = ? LIMIT 1',
+          // venc_regla: la ocurrencia existe aunque el usuario la haya movido de día.
+          'SELECT id FROM transacciones WHERE regla_recurrente_id = ? AND (venc = ? OR venc_regla = ?) LIMIT 1',
           regla.id,
+          venc,
           venc
         );
         if (existente) continue;

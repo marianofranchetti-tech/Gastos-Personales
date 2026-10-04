@@ -63,11 +63,11 @@ describe('migración — instalación nueva', () => {
     const db = crearDbFake();
     await migrateDbIfNeeded(db);
 
-    expect(await version(db)).toBe(6);
+    expect(await version(db)).toBe(7);
     expect(await columnas(db, 'reglas_recurrentes')).toEqual(
       expect.arrayContaining(['dia_semana', 'mes_anio', 'fecha_fin'])
     );
-    expect(await columnas(db, 'transacciones')).toEqual(expect.arrayContaining(['pagado_en']));
+    expect(await columnas(db, 'transacciones')).toEqual(expect.arrayContaining(['pagado_en', 'venc_regla']));
     db.cerrar();
   });
 
@@ -151,7 +151,7 @@ describe('migración v3 -> v4 sobre una base con datos', () => {
 
     const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM transacciones');
     expect(n!.n).toBe(3);
-    expect(await version(db)).toBe(6);
+    expect(await version(db)).toBe(7);
     db.cerrar();
   });
 });
@@ -175,7 +175,7 @@ describe('migración v4 -> v5 (precios)', () => {
     const tx = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM transacciones');
     expect(n!.n).toBe(0);
     expect(tx!.n).toBe(3);
-    expect(await version(db)).toBe(6);
+    expect(await version(db)).toBe(7);
     db.cerrar();
   });
 });
