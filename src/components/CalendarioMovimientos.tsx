@@ -75,6 +75,15 @@ export function CalendarioMovimientos({
   const [vista, setVista] = useState<'calendario' | 'lista'>(pc ? 'calendario' : 'lista');
   const [confirmar, setConfirmar] = useState<TransaccionVista | null>(null);
   const dnd = useArrastre(onMover, onArrastrando);
+  // Con el dedo no se arrastra: se elige la tarjeta (pulsación larga) y después
+  // se toca el día de destino. Arrastrar en celdas de 50 px peleándose con el
+  // scroll y la selección de texto del navegador no funcionaba en el teléfono.
+  const [moviendo, setMoviendo] = useState<TransaccionVista | null>(null);
+  const moverA = (d: string) => {
+    if (!moviendo || !onMover) return;
+    if (d !== fechaMov(moviendo)) onMover(moviendo, d);
+    setMoviendo(null);
+  };
   const [estado, setEstado] = useState<FiltroEstado>('todos');
   const [concepto, setConcepto] = useState<string | null>(null);
 
@@ -206,12 +215,30 @@ export function CalendarioMovimientos({
 
       {vista === 'calendario' ? (
         <View className="rounded-lg border overflow-hidden" style={{ borderColor: T.border, backgroundColor: T.surface }}>
-          {onMover && (
+          {onMover && !moviendo && (
             <Text className="px-2 pt-1.5" style={{ color: T.muted, fontSize: 12 }}>
               {punteroFino
                 ? 'Arrastrá una tarjeta a otro día para cambiarle la fecha.'
-                : 'Mantené apretada una tarjeta y arrastrala a otro día para cambiarle la fecha.'}
+                : 'Mantené apretada una tarjeta y después tocá el día al que la querés pasar.'}
             </Text>
+          )}
+          {moviendo && (
+            <View
+              className="flex-row items-center justify-between px-2 py-1.5"
+              style={{ backgroundColor: T.primaryBadgeBg, gap: 8 }}
+            >
+              <Text numberOfLines={2} className="flex-1" style={{ color: T.text, fontSize: 13 }} selectable={false}>
+                Moviendo <Text style={{ fontWeight: '700' }}>{moviendo.nombre}</Text>: tocá el día de destino.
+              </Text>
+              <Pressable
+                onPress={() => setMoviendo(null)}
+                className="px-2.5 py-1 rounded"
+                style={{ backgroundColor: T.surface2 }}
+                accessibilityLabel="Cancelar el cambio de fecha"
+              >
+                <Text style={{ color: T.text, fontSize: 13, fontWeight: '600' }}>Cancelar</Text>
+              </Pressable>
+            </View>
           )}
           <View className="flex-row border-b" style={{ borderColor: T.border, backgroundColor: T.surface2 }}>
             {DIAS_SEMANA.map((d) => (
@@ -221,8 +248,8 @@ export function CalendarioMovimientos({
             ))}
           </View>
           {semanas.map((s) => {
-            const movsSemana = s.dias.flatMap((d) => (d.slice(0, 7) === mes ? dias[d] ?? [] : []));
-            const ts = totales(movsSemana, hoy);
+            // Sin desglose por semana: en la grilla, el total del mes ya está
+            // arriba (las píldoras de estado) y la fila extra solo agregaba ruido.
             return (
               <View key={s.desde} className="border-b" style={{ borderColor: T.border }}>
                 <View className="flex-row">
@@ -230,10 +257,13 @@ export function CalendarioMovimientos({
                     const fuera = d.slice(0, 7) !== mes;
                     const esHoy = d === hoy;
                     const lista = fuera ? [] : dias[d] ?? [];
-                    const esDestino = dnd.destino === d;
+                    const esDestino = dnd.destino === d || (!!moviendo && !fuera);
                     return (
-                      <View
+                      <Pressable
                         key={d}
+                        disabled={!moviendo || fuera}
+                        onPress={() => moverA(d)}
+                        accessibilityLabel={moviendo && !fuera ? `Pasar al ${Number(d.slice(8, 10))}` : undefined}
                         ref={(r) => {
                           // Solo los días del mes visible aceptan tarjetas: soltar
                           // en un día gris la haría desaparecer de la vista.
@@ -255,13 +285,16 @@ export function CalendarioMovimientos({
                                 ? T.primaryBadgeBg
                                 : 'transparent',
                           outlineStyle: esDestino ? 'dashed' : undefined,
-                          outlineWidth: esDestino ? 2 : undefined,
+                          outlineWidth: esDestino ? (moviendo ? 1 : 2) : undefined,
                           outlineColor: esDestino ? T.primary : undefined,
                           outlineOffset: esDestino ? -2 : undefined,
                           gap: 3,
+                          userSelect: 'none',
+                          WebkitTouchCallout: 'none',
                         } as object}
                       >
                         <Text
+                          selectable={false}
                           style={{
                             color: fuera ? T.border : esHoy ? T.primaryLight : T.muted,
                             fontSize: 12,
@@ -282,13 +315,15 @@ export function CalendarioMovimientos({
                             onIniciarArrastre={onMover ? dnd.iniciar : undefined}
                             onMoverArrastre={dnd.mover}
                             onSoltar={dnd.soltar}
+                            elegida={moviendo?.id === t.id}
+                            onElegir={onMover && !punteroFino ? setMoviendo : undefined}
+                            onTocarEnModo={moviendo ? () => moverA(d) : undefined}
                           />
                         ))}
-                      </View>
+                      </Pressable>
                     );
                   })}
                 </View>
-                {movsSemana.length > 0 && <TotalSemana ts={ts} nombres={nombres} desde={s.desde} hasta={s.hasta} />}
               </View>
             );
           })}
@@ -489,6 +524,9 @@ function MiniTarjeta({
   onIniciarArrastre,
   onMoverArrastre,
   onSoltar,
+  elegida = false,
+  onElegir,
+  onTocarEnModo,
 }: {
   t: TransaccionVista;
   color: string;
@@ -496,93 +534,70 @@ function MiniTarjeta({
   onEdit?: (t: TransaccionVista) => void;
   onToggle: () => void;
   arrastrando?: boolean;
+  /** Arrastre con mouse. Con el dedo no se usa (ver onElegir). */
   onIniciarArrastre?: (t: TransaccionVista, tarjeta: Rect, x: number, y: number) => void;
   onMoverArrastre?: (x: number, y: number) => void;
   onSoltar?: (cancelado?: boolean) => void;
+  /** Esta tarjeta es la que se está moviendo (modo tocar-destino). */
+  elegida?: boolean;
+  /** Pulsación larga con el dedo: elige la tarjeta para moverla. */
+  onElegir?: (t: TransaccionVista) => void;
+  /** Si hay una tarjeta elegida, tocar esta equivale a tocar su día. */
+  onTocarEnModo?: () => void;
 }) {
   const pagado = t.estado === 'pagado';
   const ref = useRef<View>(null);
-  // Con el dedo, el arrastre se arma con una pulsación larga.
-  const armado = useRef(false);
-  const activo = useRef(false);
-  // true cuando el PanResponder ya tomó el gesto. Al tomarlo, React Native
-  // termina el Pressable y dispara su onPressOut: sin esta marca, ese
-  // onPressOut cancelaba el arrastre apenas el dedo empezaba a moverse.
-  const panTomado = useRef(false);
-  const habilitado = !!onIniciarArrastre;
-
-  const empezar = (x: number, y: number) => {
-    activo.current = true;
-    ref.current?.measureInWindow((cx, cy, w, h) => onIniciarArrastre?.(t, { x: cx, y: cy, w, h }, x, y));
-  };
+  // Arrastre directo solo con mouse/trackpad.
+  const arrastrable = !!onIniciarArrastre && punteroFino;
 
   const pan = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_e, g) =>
-          habilitado && (armado.current || (punteroFino && Math.abs(g.dx) + Math.abs(g.dy) > 6)),
-        onMoveShouldSetPanResponderCapture: (_e, g) =>
-          habilitado && (armado.current || (punteroFino && Math.abs(g.dx) + Math.abs(g.dy) > 6)),
+        onMoveShouldSetPanResponder: (_e, g) => arrastrable && Math.abs(g.dx) + Math.abs(g.dy) > 6,
+        onMoveShouldSetPanResponderCapture: (_e, g) => arrastrable && Math.abs(g.dx) + Math.abs(g.dy) > 6,
         onPanResponderGrant: (_e, g) => {
-          panTomado.current = true;
-          if (!activo.current) empezar(g.x0, g.y0);
+          const x = g.x0;
+          const y = g.y0;
+          ref.current?.measureInWindow((cx, cy, w, h) => onIniciarArrastre?.(t, { x: cx, y: cy, w, h }, x, y));
         },
         onPanResponderMove: (_e, g) => onMoverArrastre?.(g.moveX, g.moveY),
-        onPanResponderRelease: () => {
-          armado.current = false;
-          activo.current = false;
-          panTomado.current = false;
-          onSoltar?.();
-        },
-        onPanResponderTerminate: () => {
-          armado.current = false;
-          activo.current = false;
-          panTomado.current = false;
-          onSoltar?.(true);
-        },
+        onPanResponderRelease: () => onSoltar?.(),
+        onPanResponderTerminate: () => onSoltar?.(true),
         onPanResponderTerminationRequest: () => false,
-        onShouldBlockNativeResponder: () => true,
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [habilitado, t, onIniciarArrastre, onMoverArrastre, onSoltar]
+    [arrastrable, t, onIniciarArrastre, onMoverArrastre, onSoltar]
   );
 
   return (
-    <View ref={ref} collapsable={false} {...(habilitado ? pan.panHandlers : {})} style={{ opacity: arrastrando ? 0.35 : 1 }}>
+    <View
+      ref={ref}
+      collapsable={false}
+      {...(arrastrable ? pan.panHandlers : {})}
+      style={{ opacity: arrastrando ? 0.35 : 1 }}
+    >
       <Pressable
-        onPress={onEdit ? () => onEdit(t) : undefined}
-        onLongPress={
-          habilitado
-            ? (e) => {
-                armado.current = true;
-                empezar(e.nativeEvent.pageX, e.nativeEvent.pageY);
-              }
-            : undefined
-        }
-        onPressOut={() => {
-          // Pulsación larga y soltar sin mover: el PanResponder nunca tomó el
-          // gesto, así que el arrastre se cancela acá. Si lo tomó, este
-          // onPressOut viene de la terminación del Pressable y se ignora.
-          if (panTomado.current) return;
-          if (armado.current && activo.current) {
-            armado.current = false;
-            activo.current = false;
-            onSoltar?.(true);
-          }
-        }}
-        delayLongPress={350}
+        onPress={onTocarEnModo ?? (onEdit ? () => onEdit(t) : undefined)}
+        onLongPress={onElegir && !onTocarEnModo ? () => onElegir(t) : undefined}
+        delayLongPress={400}
         className="rounded"
         style={
           {
             paddingHorizontal: compacta ? 3 : 6,
             paddingVertical: compacta ? 2 : 4,
-            backgroundColor: T.surface2,
+            backgroundColor: elegida ? T.primaryBadgeBg : T.surface2,
             borderLeftWidth: 3,
             borderLeftColor: color,
+            outlineStyle: elegida ? 'solid' : undefined,
+            outlineWidth: elegida ? 2 : undefined,
+            outlineColor: elegida ? T.primary : undefined,
             opacity: pagado ? 0.75 : 1,
-            cursor: habilitado ? 'grab' : undefined,
+            cursor: arrastrable ? 'grab' : undefined,
+            // Sin esto, mantener apretado en el navegador del teléfono
+            // selecciona el texto o abre el menú en vez de elegir la tarjeta.
             userSelect: 'none',
+            WebkitUserSelect: 'none',
+            WebkitTouchCallout: 'none',
           } as object
         }
       >
@@ -602,11 +617,11 @@ function MiniTarjeta({
               }}
             />
           )}
-          <Text numberOfLines={1} className="flex-1" style={{ color: T.text, fontSize: compacta ? 10 : 12 }}>
+          <Text numberOfLines={1} selectable={false} className="flex-1" style={{ color: T.text, fontSize: compacta ? 10 : 12 }}>
             {t.nombre}
           </Text>
         </View>
-        <Text numberOfLines={1} style={{ color: T.text, fontSize: compacta ? 10 : 12, fontWeight: '600' }}>
+        <Text numberOfLines={1} selectable={false} style={{ color: T.text, fontSize: compacta ? 10 : 12, fontWeight: '600' }}>
           {compacta ? fmtCorto(t.monto) : fmt(t.monto, t.moneda)}
         </Text>
       </Pressable>
@@ -633,28 +648,6 @@ function ResumenSemana({ ts, nombres }: { ts: ReturnType<typeof totales>; nombre
           {p.txt}
         </Text>
       ))}
-    </View>
-  );
-}
-
-function TotalSemana({
-  ts,
-  nombres,
-  desde,
-  hasta,
-}: {
-  ts: ReturnType<typeof totales>;
-  nombres: Record<EstadoVista, string>;
-  desde: string;
-  hasta: string;
-}) {
-  return (
-    <View className="flex-row flex-wrap items-center justify-end px-2 py-1" style={{ columnGap: 12, backgroundColor: T.bg }}>
-      <Text style={{ color: T.muted, fontSize: 12 }}>
-        {diaMesCorto(desde)} – {diaMesCorto(hasta)}
-      </Text>
-      <ResumenSemana ts={ts} nombres={nombres} />
-      <Text style={{ color: T.text, fontSize: 12, fontWeight: '700' }}>Total {fmt(ts.todos)}</Text>
     </View>
   );
 }
