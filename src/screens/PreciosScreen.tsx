@@ -112,7 +112,7 @@ export function PrecioForm({
   const [precio, setPrecio] = useState(inicial ? String(inicial.ultimo) : '');
   const [comercio, setComercio] = useState(inicial?.comercio ?? '');
   const [cat, setCat] = useState<string | null>(inicial?.categoria_id ?? 'comida');
-  const [fecha, setFecha] = useState(inicial?.fecha ?? iso(hoy));
+  const [fecha, setFecha] = useState(inicial?.fecha ?? iso(hoy()));
   const [confirmando, setConfirmando] = useState(false);
 
   const fechaOk = !!fechaISO(fecha);

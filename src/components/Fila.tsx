@@ -23,7 +23,7 @@ export function Fila({
   const cobrado = t.estado === 'pagado';
   const fVenc = fechaISO(t.venc);
   if (fVenc) fVenc.setHours(23, 59, 0, 0); // vence al final del día
-  const vencido = t.tipo === 'gasto' && t.estado === 'pendiente' && !!fVenc && fVenc < hoy;
+  const vencido = t.tipo === 'gasto' && t.estado === 'pendiente' && !!fVenc && fVenc < hoy();
   const periodoNombre = PERIODOS.find((p) => p.id === t.periodo)?.nombre;
 
   const badge = cobrado

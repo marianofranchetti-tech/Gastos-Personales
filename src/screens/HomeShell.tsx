@@ -33,7 +33,7 @@ export function HomeShell() {
   const [form, setForm] = useState<TipoTx | null>(null);
   const [formPrecio, setFormPrecio] = useState(false);
 
-  const mes = hoy.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  const mes = hoy().toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
 
   const Logo = (
     <View className="flex-row items-center" style={{ gap: 8 }}>
