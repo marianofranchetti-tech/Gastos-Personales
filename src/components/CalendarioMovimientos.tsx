@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { CalendarDays, ChevronLeft, ChevronRight, List } from 'lucide-react-native';
 import { TransaccionVista } from '../db/queries';
@@ -219,7 +219,7 @@ export function CalendarioMovimientos({
             <Text className="px-2 pt-1.5" style={{ color: T.muted, fontSize: 12 }}>
               {punteroFino
                 ? 'Arrastrá una tarjeta a otro día para cambiarle la fecha.'
-                : 'Mantené apretada una tarjeta y después tocá el día al que la querés pasar.'}
+                : 'Mantené apretada una tarjeta y arrastrala a otro día. Si la soltás sin mover, tocá el día al que la querés pasar.'}
             </Text>
           )}
           {moviendo && (
@@ -547,8 +547,106 @@ function MiniTarjeta({
 }) {
   const pagado = t.estado === 'pagado';
   const ref = useRef<View>(null);
-  // Arrastre directo solo con mouse/trackpad.
+  // Arrastre directo con mouse/trackpad (PanResponder).
   const arrastrable = !!onIniciarArrastre && punteroFino;
+  // Con el dedo en la web, el arrastre se arma con una pulsación larga y se
+  // maneja con eventos táctiles nativos (ver el efecto de abajo). El
+  // PanResponder no sirve acá: el navegador se queda con el gesto para hacer
+  // scroll o seleccionar texto antes de que la app pueda reclamarlo.
+  const tactil = Platform.OS === 'web' && !punteroFino && !!onIniciarArrastre;
+
+  // Los manejadores táctiles viven toda la vida de la tarjeta: leen lo último
+  // desde una ref para no volver a engancharse (y perder el gesto) en cada render.
+  const ultimo = useRef({ t, onIniciarArrastre, onMoverArrastre, onSoltar, onElegir, enModo: !!onTocarEnModo });
+  ultimo.current = { t, onIniciarArrastre, onMoverArrastre, onSoltar, onElegir, enModo: !!onTocarEnModo };
+  // Tras un arrastre el navegador igual manda el "click": se ignora un rato
+  // para que soltar la tarjeta no abra la edición.
+  const ignorarPress = useRef(false);
+
+  useEffect(() => {
+    if (!tactil) return;
+    const el = ref.current as unknown as HTMLElement | null;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let activo = false;
+    let movido = false;
+    let x0 = 0;
+    let y0 = 0;
+    let x = 0;
+    let y = 0;
+
+    const terminar = (cancelado: boolean) => {
+      const u = ultimo.current;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+        return;
+      }
+      if (!activo) return;
+      activo = false;
+      ignorarPress.current = true;
+      setTimeout(() => (ignorarPress.current = false), 400);
+      if (!movido) {
+        // Pulsación larga sin mover: queda elegida para tocar el día destino.
+        u.onSoltar?.(true);
+        if (!cancelado) u.onElegir?.(u.t);
+      } else {
+        u.onSoltar?.(cancelado);
+      }
+    };
+
+    const alTocar = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || ultimo.current.enModo) return;
+      x0 = x = e.touches[0].clientX;
+      y0 = y = e.touches[0].clientY;
+      activo = false;
+      movido = false;
+      timer = setTimeout(() => {
+        timer = null;
+        activo = true;
+        (navigator as Navigator & { vibrate?: (ms: number) => boolean }).vibrate?.(15);
+        const r = el.getBoundingClientRect();
+        ultimo.current.onIniciarArrastre?.(ultimo.current.t, { x: r.left, y: r.top, w: r.width, h: r.height }, x, y);
+      }, 400);
+    };
+    const alMover = (e: TouchEvent) => {
+      const tc = e.touches[0];
+      if (!tc) return;
+      x = tc.clientX;
+      y = tc.clientY;
+      if (activo) {
+        // Con el arrastre armado el dedo ya no hace scroll.
+        if (e.cancelable) e.preventDefault();
+        if (Math.hypot(x - x0, y - y0) > 8) movido = true;
+        ultimo.current.onMoverArrastre?.(x, y);
+      } else if (timer && Math.hypot(x - x0, y - y0) > 8) {
+        // Movió antes de los 400 ms: es un scroll, no un arrastre.
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+    const alSoltar = (e: TouchEvent) => {
+      if (activo && e.cancelable) e.preventDefault();
+      terminar(false);
+    };
+    const alCancelar = () => terminar(true);
+    // Sin esto, mantener apretado abre el menú contextual del navegador.
+    const sinMenu = (e: Event) => e.preventDefault();
+
+    el.addEventListener('touchstart', alTocar, { passive: true });
+    el.addEventListener('touchmove', alMover, { passive: false });
+    el.addEventListener('touchend', alSoltar, { passive: false });
+    el.addEventListener('touchcancel', alCancelar);
+    el.addEventListener('contextmenu', sinMenu);
+    return () => {
+      if (timer) clearTimeout(timer);
+      el.removeEventListener('touchstart', alTocar);
+      el.removeEventListener('touchmove', alMover);
+      el.removeEventListener('touchend', alSoltar);
+      el.removeEventListener('touchcancel', alCancelar);
+      el.removeEventListener('contextmenu', sinMenu);
+    };
+  }, [tactil]);
 
   const pan = useMemo(
     () =>
@@ -577,8 +675,13 @@ function MiniTarjeta({
       style={{ opacity: arrastrando ? 0.35 : 1 }}
     >
       <Pressable
-        onPress={onTocarEnModo ?? (onEdit ? () => onEdit(t) : undefined)}
-        onLongPress={onElegir && !onTocarEnModo ? () => onElegir(t) : undefined}
+        onPress={() => {
+          if (ignorarPress.current) return;
+          if (onTocarEnModo) onTocarEnModo();
+          else onEdit?.(t);
+        }}
+        // En la web táctil lo maneja el efecto de arriba; en nativo, pulsación larga = elegir.
+        onLongPress={onElegir && !onTocarEnModo && !tactil ? () => onElegir(t) : undefined}
         delayLongPress={400}
         className="rounded"
         style={
