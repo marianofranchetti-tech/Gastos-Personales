@@ -16,11 +16,10 @@ en serio: para eso hace falta el backend de la Etapa 3.
 
 ## Pasos
 
-1. **Subir el repo a GitHub o GitLab.** Render buildea desde un repo Git; hoy
-   este repositorio no tiene remoto. Conviene que sea **privado**: los workflows
-   de n8n que están en `embalog-mercadolibre/` exponen las URLs de tu Odoo y de
-   tu instancia de n8n. No hay tokens hardcodeados (lo verifiqué), pero no hace
-   falta publicar tu infraestructura.
+1. **El repo ya está en GitHub** (`marianofranchetti-tech/Gastos-Personales`).
+   Render buildea desde ahí. La integración Odoo ↔ Mercado Libre de Embalog
+   vive en su propio repo privado (`embalog-mercadolibre`): no la vuelvas a
+   meter acá.
 
 2. En Render: **New > Blueprint**, apuntando al repo. Render lee `render.yaml` y
    crea el sitio solo. Si preferís hacerlo a mano (New > Static Site):
