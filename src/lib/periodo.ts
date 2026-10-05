@@ -268,19 +268,21 @@ export function serieBarras({
 export type TotalCategoria = { id: string; monto: number; porcentaje: number };
 
 /**
- * Gasto PAGADO por categoría dentro del rango, de mayor a menor. Lo pendiente
- * se devuelve aparte: es plata que se debe, no plata que se fue.
+ * Monto PAGADO (o cobrado, si `tipo` es 'ingreso') por categoría dentro del
+ * rango, de mayor a menor. Lo pendiente se devuelve aparte: es plata que se
+ * debe o que falta cobrar, no plata que ya se movió.
  */
 export function gastosPorCategoria(
   movs: Mov[],
   r: Rango,
-  moneda = 'ARS'
+  moneda = 'ARS',
+  tipo: 'gasto' | 'ingreso' = 'gasto'
 ): { categorias: TotalCategoria[]; total: number; pendiente: number } {
   const m: Record<string, number> = {};
   let total = 0;
   let pendiente = 0;
   for (const t of movs) {
-    if (t.tipo !== 'gasto' || t.moneda !== moneda || t.fecha < r.desde || t.fecha > r.hasta) continue;
+    if (t.tipo !== tipo || t.moneda !== moneda || t.fecha < r.desde || t.fecha > r.hasta) continue;
     if (t.estado !== 'pagado') {
       pendiente += t.monto;
       continue;
