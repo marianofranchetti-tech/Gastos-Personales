@@ -23,9 +23,13 @@ export function useBarras(moneda: string = MONEDA_DEFAULT) {
   );
 }
 
-/** Gasto pagado por categoría en el período elegido. */
-export function useCategoriasPeriodo(moneda: string = MONEDA_DEFAULT) {
-  const { gastos } = useData();
+/** Gasto pagado (o ingreso cobrado) por categoría en el período elegido. */
+export function useCategoriasPeriodo(moneda: string = MONEDA_DEFAULT, tipo: 'gasto' | 'ingreso' = 'gasto') {
+  const { gastos, ingresos } = useData();
   const { g, ancla } = usePeriodo();
-  return useMemo(() => gastosPorCategoria(gastos, rangoPeriodo(g, ancla), moneda), [g, ancla, gastos, moneda]);
+  const movs = tipo === 'gasto' ? gastos : ingresos;
+  return useMemo(
+    () => gastosPorCategoria(movs, rangoPeriodo(g, ancla), moneda, tipo),
+    [g, ancla, movs, moneda, tipo]
+  );
 }

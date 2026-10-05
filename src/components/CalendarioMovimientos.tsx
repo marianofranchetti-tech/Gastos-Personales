@@ -6,7 +6,6 @@ import { TipoTx } from '../lib/categorias';
 import {
   conceptos,
   diaLargo,
-  diaMesCorto,
   EstadoVista,
   estadoVista,
   fechaMov,
@@ -329,50 +328,25 @@ export function CalendarioMovimientos({
           })}
         </View>
       ) : (
-        <View style={{ gap: 12 }}>
-          {semanas.map((s) => {
-            const diasConMovs = s.dias.filter((d) => d.slice(0, 7) === mes && (dias[d]?.length ?? 0) > 0);
-            const movsSemana = diasConMovs.flatMap((d) => dias[d]);
-            const ts = totales(movsSemana, hoy);
-            const esActual = s.desde <= hoy && hoy <= s.hasta;
-            return (
-              <View
-                key={s.desde}
-                className="rounded-lg border p-3"
-                style={{ borderColor: esActual ? T.primary : T.border, backgroundColor: T.surface, gap: 8 }}
-              >
-                <View className="flex-row items-baseline justify-between">
-                  <Text className="font-bold" style={{ color: T.text, fontSize: 15 }}>
-                    {esActual ? 'Esta semana' : `${diaMesCorto(s.desde)} – ${diaMesCorto(s.hasta)}`}
-                  </Text>
-                  {movsSemana.length > 0 && (
-                    <Text className="font-semibold" style={{ color: T.text, fontSize: 14 }}>
-                      {tipo === 'gasto' ? '−' : '+'}
-                      {fmt(ts.todos)}
-                    </Text>
-                  )}
-                </View>
-                {movsSemana.length > 0 ? (
-                  <ResumenSemana ts={ts} nombres={nombres} />
-                ) : (
-                  <Text style={{ color: T.muted, fontSize: 14 }}>Sin movimientos.</Text>
-                )}
-                {diasConMovs.map((d) => (
-                  <View key={d} style={{ gap: 6 }}>
-                    <Text
-                      className="uppercase tracking-wide"
-                      style={{ color: d === hoy ? T.primaryLight : T.muted, fontSize: 12, fontWeight: '700' }}
-                    >
-                      {d === hoy ? `Hoy · ${diaLargo(d)}` : diaLargo(d)}
-                    </Text>
-                    {dias[d].map((t) => (
-                      <Fila key={t.id} t={t} onToggle={() => setConfirmar(t)} onEdit={onEdit} />
-                    ))}
-                  </View>
+        // Lista plana del mes, día por día. Sin agrupar por semana: el total del
+        // mes ya está en las píldoras de arriba.
+        <View style={{ gap: 14 }}>
+          {Object.keys(dias)
+            .filter((d) => d.slice(0, 7) === mes && dias[d].length > 0)
+            .sort()
+            .map((d) => (
+              <View key={d} style={{ gap: 6 }}>
+                <Text
+                  className="uppercase tracking-wide"
+                  style={{ color: d === hoy ? T.primaryLight : T.muted, fontSize: 12, fontWeight: '700' }}
+                >
+                  {d === hoy ? `Hoy · ${diaLargo(d)}` : diaLargo(d)}
+                </Text>
+                {dias[d].map((t) => (
+                  <Fila key={t.id} t={t} onToggle={() => setConfirmar(t)} onEdit={onEdit} />
                 ))}
               </View>
-            );
-          })}
+            ))}
         </View>
       )}
 
@@ -737,22 +711,6 @@ function fmtCorto(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toLocaleString('es-AR', { maximumFractionDigits: 1 })}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
   return String(Math.round(n));
-}
-
-function ResumenSemana({ ts, nombres }: { ts: ReturnType<typeof totales>; nombres: Record<EstadoVista, string> }) {
-  const partes: { txt: string; color: string }[] = [];
-  if (ts.pagado) partes.push({ txt: `${nombres.pagado} ${fmt(ts.pagado)}`, color: T.teal });
-  if (ts.vencido) partes.push({ txt: `${nombres.vencido} ${fmt(ts.vencido)}`, color: T.danger });
-  if (ts.pendiente) partes.push({ txt: `${nombres.pendiente} ${fmt(ts.pendiente)}`, color: T.warn });
-  return (
-    <View className="flex-row flex-wrap" style={{ columnGap: 12 }}>
-      {partes.map((p) => (
-        <Text key={p.txt} style={{ color: p.color, fontSize: 13 }}>
-          {p.txt}
-        </Text>
-      ))}
-    </View>
-  );
 }
 
 function PillEstado({

@@ -93,4 +93,17 @@ describe('gastosPorCategoria', () => {
     expect(r.pendiente).toBe(40);
     expect(r.categorias.map((c) => [c.id, c.monto, c.porcentaje])).toEqual([['comida', 70, 70], ['casa', 30, 30]]);
   });
+
+  it('con tipo ingreso suma solo lo cobrado de ingresos y deja lo pendiente aparte', () => {
+    const ing = (fecha: string, monto: number, o: Partial<Mov> = {}): Mov => ({ ...g(fecha, monto), tipo: 'ingreso', categoria_id: 'salario', ...o });
+    const r = gastosPorCategoria(
+      [ing('2026-10-01', 500), ing('2026-10-02', 100, { categoria_id: 'extras' }), ing('2026-10-03', 80, { estado: 'pendiente' }), g('2026-10-04', 999)],
+      rangoPeriodo('mes', HOY),
+      'ARS',
+      'ingreso'
+    );
+    expect(r.total).toBe(600);
+    expect(r.pendiente).toBe(80);
+    expect(r.categorias.map((c) => c.id)).toEqual(['salario', 'extras']);
+  });
 });

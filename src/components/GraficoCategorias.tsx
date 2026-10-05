@@ -15,8 +15,9 @@ const MAX_FILAS = 7;
  * Solo lo PAGADO, igual que el balance. Lo pendiente del período se avisa
  * abajo, aparte.
  */
-export function GraficoCategorias({ moneda = 'ARS' }: { moneda?: string }) {
-  const { categorias, total, pendiente } = useCategoriasPeriodo(moneda);
+export function GraficoCategorias({ moneda = 'ARS', tipo = 'gasto' }: { moneda?: string; tipo?: 'gasto' | 'ingreso' }) {
+  const { categorias, total, pendiente } = useCategoriasPeriodo(moneda, tipo);
+  const ing = tipo === 'ingreso';
 
   const filas =
     categorias.length > MAX_FILAS
@@ -35,7 +36,7 @@ export function GraficoCategorias({ moneda = 'ARS' }: { moneda?: string }) {
     <View className="rounded-lg p-4 border" style={{ backgroundColor: T.surface, borderColor: T.border, gap: 12 }}>
       {total > 0 && (
         <View className="flex-row justify-between items-baseline">
-          <Text style={{ color: T.muted, fontSize: 14 }}>Pagado en el período</Text>
+          <Text style={{ color: T.muted, fontSize: 14 }}>{ing ? 'Cobrado en el período' : 'Pagado en el período'}</Text>
           <Text style={{ color: T.text, fontSize: 18, fontWeight: '700' }}>{fmt(total, moneda)}</Text>
         </View>
       )}
@@ -70,12 +71,14 @@ export function GraficoCategorias({ moneda = 'ARS' }: { moneda?: string }) {
       })}
 
       {total === 0 && (
-        <Text style={{ color: T.muted, fontSize: 16 }}>No hay pagos registrados en este período.</Text>
+        <Text style={{ color: T.muted, fontSize: 16 }}>
+          {ing ? 'No hay cobros registrados en este período.' : 'No hay pagos registrados en este período.'}
+        </Text>
       )}
 
       {pendiente > 0 && (
         <Text style={{ color: T.muted, fontSize: 13 }}>
-          Además hay {fmt(pendiente, moneda)} de gastos del período todavía sin pagar.
+          Además hay {fmt(pendiente, moneda)} de {ing ? 'ingresos del período todavía sin cobrar' : 'gastos del período todavía sin pagar'}.
         </Text>
       )}
     </View>
