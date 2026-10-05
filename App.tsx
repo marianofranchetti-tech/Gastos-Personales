@@ -6,17 +6,23 @@ import { DataProvider } from './src/db/DataProvider';
 import { HomeShell } from './src/screens/HomeShell';
 import { TemaProvider } from './src/lib/TemaProvider';
 import { PeriodoProvider } from './src/lib/PeriodoProvider';
+import { AuthProvider } from './src/auth/AuthProvider';
+import { Puerta } from './src/auth/Puerta';
 
 export default function App() {
   return (
     <SafeAreaProvider>
       <SQLiteProvider databaseName="gastos.db" onInit={migrateDbIfNeeded}>
         <TemaProvider>
-          <DataProvider>
-            <PeriodoProvider>
-              <HomeShell />
-            </PeriodoProvider>
-          </DataProvider>
+          <AuthProvider>
+            <Puerta>
+              <DataProvider>
+                <PeriodoProvider>
+                  <HomeShell />
+                </PeriodoProvider>
+              </DataProvider>
+            </Puerta>
+          </AuthProvider>
         </TemaProvider>
       </SQLiteProvider>
     </SafeAreaProvider>

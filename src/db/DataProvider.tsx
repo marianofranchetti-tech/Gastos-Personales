@@ -32,6 +32,9 @@ import {
   resumenPorProducto,
   ResumenProducto,
 } from './precios';
+import { useAuth } from '../auth/AuthProvider';
+import { InfoSync, useSincronizacion } from '../sync/useSincronizacion';
+import { registrarEvento, TipoEvento } from '../sync/eventos';
 
 const HORIZONTE_PROYECCION_MESES = 6;
 /** Para los gráficos: alcanza para ver un año entero o navegar meses hacia adelante. */
@@ -75,6 +78,8 @@ type DataContextType = {
   contarFuera: (desde: string, hasta: string) => Promise<{ antes: number; despues: number }>;
   /** Borra los movimientos fuera de [desde, hasta]. Devuelve cuántos borró. */
   depurar: (desde: string, hasta: string) => Promise<number>;
+  /** Estado de la sincronización con la nube ('apagado' si no hay cuenta). */
+  sync: InfoSync;
 };
 
 const DataContext = createContext<DataContextType | null>(null);
@@ -118,6 +123,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, [db]);
 
+  // Lo que llega de otro dispositivo puede traer reglas nuevas: se materializa
+  // antes de volver a leer, igual que al arrancar.
+  const recargar = useCallback(async () => {
+    try {
+      await materializarRecurrentes(db);
+    } catch (e) {
+      console.warn('[recurrentes] materialización falló:', e);
+    }
+    await refresh();
+  }, [db, refresh]);
+
+  const { sesion } = useAuth();
+  const { avisarCambio, ...sync } = useSincronizacion(db, sesion?.user.id ?? null, recargar);
+
+  /** Después de cada cambio del usuario: registra el uso y agenda la subida. */
+  const anotar = useCallback(
+    (evento: TipoEvento, props?: Record<string, unknown>) => {
+      registrarEvento(db, evento, props).finally(avisarCambio);
+    },
+    [db, avisarCambio]
+  );
+
+  useEffect(() => {
+    registrarEvento(db, 'app_abierta');
+  }, [db]);
+
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -143,32 +174,43 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // materializamos ya, si no no aparecen hasta el próximo arranque.
       if (input.rec) await materializarRecurrentes(db);
       await refresh();
+      anotar('movimiento_creado', {
+        tipo: input.tipo,
+        categoria: input.categoria_id,
+        monto: input.monto,
+        moneda: input.moneda ?? null,
+        recurrente: input.rec ? input.periodo ?? true : false,
+        estado: input.estado ?? null,
+      });
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const alternar = useCallback(
     async (id: number) => {
       await alternarEstado(db, id);
       await refresh();
+      anotar('movimiento_estado');
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const pagar = useCallback(
     async (id: number) => {
       await marcarPagada(db, id);
       await refresh();
+      anotar('movimiento_pagado');
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const mover = useCallback(
     async (id: number, fecha: string) => {
       await moverFecha(db, id, fecha);
       await refresh();
+      anotar('movimiento_movido');
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const editar = useCallback(
@@ -178,16 +220,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // así que hay que volver a materializar antes de leer.
       await materializarRecurrentes(db);
       await refresh();
+      anotar('movimiento_editado', { alcance, categoria: input.categoria_id, monto: input.monto });
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const eliminar = useCallback(
     async (id: number, alcance: Alcance) => {
       await eliminarTransaccion(db, id, alcance);
       await refresh();
+      anotar('movimiento_eliminado', { alcance });
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const guardarPrecio = useCallback(
@@ -195,22 +239,25 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (id != null) await actualizarPrecio(db, id, p);
       else await crearPrecio(db, p);
       await refresh();
+      anotar('precio_guardado', { nuevo: id == null, categoria: p.categoria_id });
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const eliminarPrecio = useCallback(
     async (id: number) => {
       await borrarPrecio(db, id);
       await refresh();
+      anotar('precio_eliminado');
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   const limpiar = useCallback(async () => {
     await limpiarDatos(db);
     await refresh();
-  }, [db, refresh]);
+    anotar('datos_limpiados');
+  }, [db, refresh, anotar]);
 
   const contarFuera = useCallback((desde: string, hasta: string) => contarFueraDeRango(db, desde, hasta), [db]);
 
@@ -218,9 +265,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     async (desde: string, hasta: string) => {
       const n = await eliminarFueraDeRango(db, desde, hasta);
       await refresh();
+      anotar('datos_depurados', { borrados: n });
       return n;
     },
-    [db, refresh]
+    [db, refresh, anotar]
   );
 
   return (
@@ -254,6 +302,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         limpiar,
         contarFuera,
         depurar,
+        sync,
       }}
     >
       {children}

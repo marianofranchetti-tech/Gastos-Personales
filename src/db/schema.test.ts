@@ -63,7 +63,7 @@ describe('migración — instalación nueva', () => {
     const db = crearDbFake();
     await migrateDbIfNeeded(db);
 
-    expect(await version(db)).toBe(7);
+    expect(await version(db)).toBe(8);
     expect(await columnas(db, 'reglas_recurrentes')).toEqual(
       expect.arrayContaining(['dia_semana', 'mes_anio', 'fecha_fin'])
     );
@@ -151,7 +151,7 @@ describe('migración v3 -> v4 sobre una base con datos', () => {
 
     const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM transacciones');
     expect(n!.n).toBe(3);
-    expect(await version(db)).toBe(7);
+    expect(await version(db)).toBe(8);
     db.cerrar();
   });
 });
@@ -175,7 +175,40 @@ describe('migración v4 -> v5 (precios)', () => {
     const tx = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM transacciones');
     expect(n!.n).toBe(0);
     expect(tx!.n).toBe(3);
-    expect(await version(db)).toBe(7);
+    expect(await version(db)).toBe(8);
+    db.cerrar();
+  });
+});
+
+describe('migración v7 -> v8 (sincronización)', () => {
+  it('da un uuid único a cada registro existente, sin anotarlos para subir', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+
+    const tx = await db.getAllAsync<{ uuid: string; regla_recurrente_id: number | null; actualizado: string }>(
+      'SELECT uuid, regla_recurrente_id, actualizado FROM transacciones'
+    );
+    expect(tx).toHaveLength(3);
+    expect(new Set(tx.map((t) => t.uuid)).size).toBe(3);
+    expect(tx.every((t) => t.actualizado)).toBe(true);
+    // La cuota del alquiler toma el uuid derivado de su regla y su vencimiento.
+    const regla = await db.getFirstAsync<{ uuid: string }>("SELECT uuid FROM reglas_recurrentes WHERE nombre = 'Alquiler'");
+    expect(tx.find((t) => t.regla_recurrente_id === 1)!.uuid).toBe(`${regla!.uuid}:2026-09-05`);
+    // Lo que ya había no sube solo: eso lo decide el usuario al entrar a su cuenta.
+    const cola = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM sync_cola');
+    expect(cola!.n).toBe(0);
+    db.cerrar();
+  });
+
+  it('deja los triggers andando y un id de dispositivo', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+
+    await db.runAsync("UPDATE transacciones SET monto = 1 WHERE nombre = 'Super'");
+    const cola = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM sync_cola');
+    const disp = await db.getFirstAsync<{ valor: string }>("SELECT valor FROM sync_meta WHERE clave = 'dispositivo_id'");
+    expect(cola!.n).toBe(1);
+    expect(disp!.valor).toMatch(/^[0-9a-f-]{36}$/);
     db.cerrar();
   });
 });

@@ -1,10 +1,9 @@
 # Deploy de la app web en Render (sitio estático).
 #
 # Es el build de Expo para web: React Native Web + SQLite corriendo en el
-# navegador vía wa-sqlite (WASM). La base vive en el browser de cada visitante
-# (OPFS), no en un servidor: cada uno ve SUS datos y no hay backend ni cuentas.
-# Eso lo hace perfecto para mostrar y probar, y NO apto para usar en serio
-# todavía — si el usuario limpia los datos del sitio, pierde todo.
+# navegador vía wa-sqlite (WASM). Con Supabase configurado, cada visitante
+# entra con su cuenta y sus datos se sincronizan con la nube (ver SUPABASE.md);
+# sin esas variables, la base vive solo en el navegador, como antes.
 #
 # Verificado que NO hacen falta headers COOP/COEP: el build usa un VFS que no
 # necesita SharedArrayBuffer. No los agregues "por las dudas": COEP require-corp
@@ -21,6 +20,13 @@ services:
       # del default de Render no rompa un build que hoy anda.
       - key: NODE_VERSION
         value: "22.22.2"
+      # Supabase (ver SUPABASE.md). Se cargan a mano en el panel de Render:
+      # sync: false las deja fuera del repo. Expo las mete en el bundle al
+      # buildear, así que cambiarlas pide un deploy nuevo.
+      - key: EXPO_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
     headers:
       # El bundle y el wasm llevan hash en el nombre: son inmutables.
       - path: /_expo/static/*
