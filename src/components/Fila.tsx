@@ -2,8 +2,11 @@ import { Pressable, Text, View } from 'react-native';
 import { TransaccionVista } from '../db/queries';
 import { PERIODOS, TODAS_CATS } from '../lib/categorias';
 import { CAT_ICONS } from '../lib/iconos';
-import { diaCorto, fechaISO, fmt, hoy } from '../lib/format';
+import { diaCorto, fmt } from '../lib/format';
+import { estadoVista } from '../lib/calendario';
+import { hoyISO } from '../lib/fechasRecurrentes';
 import { T } from '../lib/theme';
+import { BarraPagado } from './Pagos';
 
 export function Fila({
   t,
@@ -13,24 +16,28 @@ export function Fila({
 }: {
   t: TransaccionVista;
   onToggle: (id: number) => void;
-  /** Tocar la fila abre la edición. El badge de estado sigue alternando. */
+  /** Tocar la fila abre la edición. El badge de estado abre los pagos (onToggle). */
   onEdit?: (t: TransaccionVista) => void;
   /** Cuántas ocurrencias más de la misma regla quedan en la ventana. */
   masOcurrencias?: number;
 }) {
   const cat = TODAS_CATS.find((c) => c.id === t.categoria_id);
   const Icono = CAT_ICONS[t.categoria_id];
-  const cobrado = t.estado === 'pagado';
-  const fVenc = fechaISO(t.venc);
-  if (fVenc) fVenc.setHours(23, 59, 0, 0); // vence al final del día
-  const vencido = t.tipo === 'gasto' && t.estado === 'pendiente' && !!fVenc && fVenc < hoy();
+  const esG = t.tipo === 'gasto';
+  // Vence al final del día: el día del vencimiento todavía no está vencido.
+  const estado = estadoVista(t, hoyISO());
+  const vencido = estado === 'vencido';
+  const parcial = t.pagado > 0.005 && t.saldo > 0;
   const periodoNombre = PERIODOS.find((p) => p.id === t.periodo)?.nombre;
 
-  const badge = cobrado
-    ? { bg: T.tealBg, col: T.teal, txt: t.tipo === 'gasto' ? '✓ Pagado' : '✓ Cobrado' }
-    : vencido
-      ? { bg: T.dangerBg, col: T.danger, txt: 'Vencido' }
-      : { bg: T.warnBg, col: T.warn, txt: 'Pendiente' };
+  const badge =
+    estado === 'pagado'
+      ? { bg: T.tealBg, col: T.teal, txt: esG ? '✓ Pagado' : '✓ Cobrado' }
+      : vencido
+        ? { bg: T.dangerBg, col: T.danger, txt: esG ? 'Vencido' : 'Atrasado' }
+        : parcial
+          ? { bg: T.primaryBadgeBg, col: T.primaryLight, txt: 'Parcial' }
+          : { bg: T.warnBg, col: T.warn, txt: 'Pendiente' };
 
   return (
     <Pressable
@@ -61,6 +68,14 @@ export function Fila({
             ) : null}
           </Text>
         ) : null}
+        {parcial && (
+          <View style={{ gap: 3, marginTop: 3 }}>
+            <Text className="text-[14px]" style={{ color: T.muted }} numberOfLines={1}>
+              {esG ? 'Pagado' : 'Cobrado'} {fmt(t.pagado, t.moneda)} de {fmt(t.monto, t.moneda)}
+            </Text>
+            <BarraPagado pagado={t.pagado} monto={t.monto} color={vencido ? T.danger : T.primaryLight} />
+          </View>
+        )}
       </View>
       <View className="items-end">
         <Text className="font-semibold" style={{ color: t.tipo === 'gasto' ? T.text : T.teal }}>
@@ -71,6 +86,7 @@ export function Fila({
           onPress={() => onToggle(t.id)}
           className="px-2 py-0.5 rounded mt-0.5"
           style={{ backgroundColor: badge.bg }}
+          accessibilityLabel={esG ? 'Pagos de este gasto' : 'Cobros de este ingreso'}
         >
           <Text className="text-[14px] font-semibold" style={{ color: badge.col }}>
             {badge.txt}

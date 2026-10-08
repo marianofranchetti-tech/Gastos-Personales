@@ -14,6 +14,7 @@ import { GastosScreen } from './GastosScreen';
 import { IngresosScreen } from './IngresosScreen';
 import { PreciosScreen, PrecioForm } from './PreciosScreen';
 import { TransactionForm } from '../components/TransactionForm';
+import { MenuCuenta } from '../auth/MenuCuenta';
 
 type Tab = 'inicio' | 'gastos' | 'ingresos' | 'precios';
 
@@ -148,6 +149,7 @@ export function HomeShell() {
             </View>
             <View className="flex-1" />
             <View className="px-1" style={{ gap: 10 }}>
+              <MenuCuenta conTexto />
               <Text className="uppercase tracking-widest" style={{ color: T.muted, fontSize: 12 }}>
                 {mes}
               </Text>
@@ -168,6 +170,7 @@ export function HomeShell() {
                   {mes}
                 </Text>
                 {BotonTema}
+                <MenuCuenta />
               </View>
             </View>
           </View>

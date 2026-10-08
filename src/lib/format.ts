@@ -37,6 +37,18 @@ export function diaCorto(iso: string): string {
   return d ? d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : iso;
 }
 
+/**
+ * Monto tipeado a número: '1500', '1500,5', '1.500', '1.500,50', '$ 1500.5'.
+ * Con coma, la coma es decimal y los puntos son de miles; sin coma, un punto
+ * seguido de grupos de tres dígitos también es de miles. NaN si no es número.
+ */
+export function aMonto(txt: string): number {
+  let t = txt.trim().replace(/[\s$]/g, '');
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  return t === '' ? NaN : Number(t);
+}
+
 /** Acepta DD/MM/AAAA (o D/M/AAAA, con / - o .) y AAAA-MM-DD. Devuelve ISO o null. */
 export function aISO(txt: string): string | null {
   const t = txt.trim();

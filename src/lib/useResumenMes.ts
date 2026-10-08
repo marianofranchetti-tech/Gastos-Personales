@@ -8,7 +8,7 @@ import { mesActual } from './format';
 export const cobrado = (t: TransaccionVista) => t.estado === 'pagado';
 
 export function useResumenMes() {
-  const { gastos, ingresos } = useData();
+  const { gastos, ingresos, pagos } = useData();
   const mes = mesActual();
 
   // Comparación por prefijo de string: no depende de que la fecha parsee bien
@@ -21,19 +21,22 @@ export function useResumenMes() {
     [ingresos, mes]
   );
 
-  // BALANCE REAL: sólo dinero efectivamente pagado / cobrado
-  const totG = gMes.filter(cobrado).reduce((a, t) => a + t.monto, 0);
-  const totI = iMes.filter(cobrado).reduce((a, t) => a + t.monto, 0);
-  const pendCobro = iMes.filter((t) => !cobrado(t)).reduce((a, t) => a + t.monto, 0);
+  // BALANCE REAL: sólo dinero efectivamente pagado / cobrado, el mes en que
+  // se movió. Los pagos parciales cuentan por lo pagado.
+  const pagosMes = useMemo(() => pagos.filter((p) => p.fecha.slice(0, 7) === mes), [pagos, mes]);
+  const gPagos = pagosMes.filter((p) => p.tipo === 'gasto');
+  const totG = gPagos.reduce((a, p) => a + p.monto, 0);
+  const totI = pagosMes.filter((p) => p.tipo === 'ingreso').reduce((a, p) => a + p.monto, 0);
+  const pendCobro = iMes.reduce((a, t) => a + t.saldo, 0);
   const balance = totI - totG;
   const desequilibrio = balance < 0;
   const pctG = totI + totG > 0 ? (totG / (totI + totG)) * 100 : 50;
 
   const porCat = useMemo(() => {
     const m: Record<string, number> = {};
-    gMes.filter(cobrado).forEach((t) => (m[t.categoria_id] = (m[t.categoria_id] || 0) + t.monto));
+    gPagos.forEach((p) => (m[p.categoria_id] = (m[p.categoria_id] || 0) + p.monto));
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  }, [gMes]);
+  }, [gPagos]);
 
   /**
    * Lo mismo pero con nombre y porcentaje sobre el total del mes. El porcentaje

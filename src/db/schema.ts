@@ -2,12 +2,167 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { CATS, CATS_ING, MONEDA_DEFAULT } from '../lib/categorias';
 import { iso, hoy } from '../lib/format';
 
-const DATABASE_VERSION = 7;
+const DATABASE_VERSION = 9;
+
+/** uuid v4 armado en SQL. randomblob se evalúa por fila: cada una recibe el suyo. */
+const UUID_SQL = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2)
+  || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))`;
+
+/** Hora UTC con milisegundos, en el mismo formato que Date.toISOString(). */
+const AHORA_SQL = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+
+/**
+ * Hora de las ocurrencias que genera una regla. Es a propósito la más vieja
+ * posible: si dos dispositivos generan la misma cuota y uno ya la pagó, la
+ * versión pagada tiene que ganarle a la recién generada, siempre.
+ */
+export const HORA_GENERADA = '2000-01-01T00:00:00.000Z';
+
+/**
+ * Hora de un cambio sobre una fila que ya tenía `previa`: ahora, pero siempre
+ * al menos 1 ms después de la anterior. Sin esto, crear y borrar (o editar)
+ * dentro del mismo milisegundo empata, y en un empate gana lo que ya está: el
+ * otro dispositivo no se enteraría del cambio.
+ */
+const despuesDe = (previa: string) =>
+  `MAX(${AHORA_SQL}, COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ', ${previa}, '+0.001 seconds'), ''))`;
+
+/** Mientras se aplican cambios bajados de la nube, los triggers no anotan nada. */
+const NO_APLICANDO = `(SELECT valor FROM sync_meta WHERE clave = 'aplicando') IS NOT '1'`;
+
+/**
+ * Triggers de sincronización de una tabla. No son historia como las
+ * migraciones: se reinstalan en cada arranque (ver instalarTriggersSync), así
+ * que un arreglo acá llega a todas las bases sin migración nueva.
+ *
+ * - Alta: asigna uuid y hora, y anota en la cola.
+ * - Cambio: renueva la hora y anota. Si el UPDATE ya traía su propia hora (lo
+ *   hace el alta, de arriba) no hace nada, para no pisarla.
+ * - Baja: anota la baja en la cola, con la hora en que ocurrió.
+ */
+function triggersSync(tabla: 'reglas_recurrentes' | 'transacciones' | 'pagos' | 'precios'): string {
+  // Una ocurrencia de regla toma un uuid derivado de la regla y su
+  // vencimiento original: dos dispositivos que generan la misma cuota generan
+  // el mismo registro. Si ese uuid ya está tomado (una ocurrencia que se
+  // desprendió de la regla), va uno al azar para no chocar.
+  const uuidNuevo =
+    tabla === 'transacciones'
+      ? `CASE
+           WHEN NEW.regla_recurrente_id IS NOT NULL
+            AND (SELECT uuid FROM reglas_recurrentes WHERE id = NEW.regla_recurrente_id) IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM transacciones
+               WHERE uuid = (SELECT uuid FROM reglas_recurrentes WHERE id = NEW.regla_recurrente_id)
+                            || ':' || COALESCE(NEW.venc_regla, NEW.venc, NEW.fecha))
+           THEN (SELECT uuid FROM reglas_recurrentes WHERE id = NEW.regla_recurrente_id)
+                || ':' || COALESCE(NEW.venc_regla, NEW.venc, NEW.fecha)
+           ELSE ${UUID_SQL}
+         END`
+      : UUID_SQL;
+
+  return `
+    DROP TRIGGER IF EXISTS sync_alta_${tabla};
+    DROP TRIGGER IF EXISTS sync_cambio_${tabla};
+    DROP TRIGGER IF EXISTS sync_baja_${tabla};
+
+    CREATE TRIGGER sync_alta_${tabla} AFTER INSERT ON ${tabla}
+    WHEN ${NO_APLICANDO}
+    BEGIN
+      UPDATE ${tabla} SET uuid = COALESCE(NEW.uuid, ${uuidNuevo}), actualizado = '' WHERE id = NEW.id;
+      UPDATE ${tabla}
+         SET actualizado = CASE WHEN uuid LIKE '%:%' THEN '${HORA_GENERADA}' ELSE ${AHORA_SQL} END
+       WHERE id = NEW.id;
+      INSERT OR REPLACE INTO sync_cola (tabla, uuid, borrado, actualizado)
+        SELECT '${tabla}', uuid, 0, actualizado FROM ${tabla} WHERE id = NEW.id;
+    END;
+
+    CREATE TRIGGER sync_cambio_${tabla} AFTER UPDATE ON ${tabla}
+    WHEN ${NO_APLICANDO} AND NEW.actualizado IS OLD.actualizado AND NEW.uuid IS NOT NULL
+    BEGIN
+      UPDATE ${tabla} SET actualizado = ${despuesDe('OLD.actualizado')} WHERE id = NEW.id;
+      INSERT OR REPLACE INTO sync_cola (tabla, uuid, borrado, actualizado)
+        SELECT '${tabla}', uuid, 0, actualizado FROM ${tabla} WHERE id = NEW.id;
+    END;
+
+    CREATE TRIGGER sync_baja_${tabla} AFTER DELETE ON ${tabla}
+    WHEN ${NO_APLICANDO} AND OLD.uuid IS NOT NULL
+    BEGIN
+      INSERT OR REPLACE INTO sync_cola (tabla, uuid, borrado, actualizado)
+        VALUES ('${tabla}', OLD.uuid, 1, ${despuesDe('OLD.actualizado')});
+    END;
+  `;
+}
+
+/** Margen para comparar montos REAL: medio centavo. */
+const CENTAVO = 0.005;
+
+/**
+ * Recalcula el estado guardado de un concepto a partir de sus pagos.
+ *
+ * `estado` y `pagado_en` quedan como caché de "saldado por completo": la
+ * verdad son los pagos. Mantenerlos al día deja andando todo lo que ya los lee
+ * (proyección, reglas, vistas de Supabase, versiones viejas de la app). Solo
+ * escribe si algo cambia, para no anotar cambios vacíos en la cola de sync.
+ */
+function recalcularEstado(idTx: string): string {
+  const pagado = `COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.transaccion_id = ${idTx}), 0)`;
+  const saldado = `(${pagado} >= monto - ${CENTAVO})`;
+  const estado = `CASE WHEN ${saldado} THEN 'pagado' ELSE 'pendiente' END`;
+  const pagadoEn = `CASE WHEN ${saldado} THEN (SELECT MAX(p.fecha) FROM pagos p WHERE p.transaccion_id = ${idTx}) END`;
+  return `UPDATE transacciones SET estado = ${estado}, pagado_en = ${pagadoEn}
+           WHERE id = ${idTx} AND (estado IS NOT ${estado} OR pagado_en IS NOT ${pagadoEn});`;
+}
+
+/**
+ * Triggers de pagos (v9). Igual que los de sync, se reinstalan en cada arranque.
+ *
+ * - Todo alta, baja o cambio de un pago recalcula el estado de su concepto.
+ * - Si cambia el monto de un concepto que tiene pagos, también (subir el
+ *   monto de algo saldado lo vuelve a dejar con saldo).
+ * - Borrar un concepto borra sus pagos. La FK con ON DELETE CASCADE no alcanza:
+ *   expo-sqlite no deja foreign_keys prendido entre arranques.
+ *
+ * No miran la bandera 'aplicando': lo que baja de la nube también tiene que
+ * dejar el estado local coherente (los triggers de sync no lo vuelven a subir).
+ */
+const TRIGGERS_PAGOS = `
+  DROP TRIGGER IF EXISTS pagos_estado_alta;
+  DROP TRIGGER IF EXISTS pagos_estado_baja;
+  DROP TRIGGER IF EXISTS pagos_estado_cambio;
+  DROP TRIGGER IF EXISTS transacciones_estado_monto;
+  DROP TRIGGER IF EXISTS transacciones_borra_pagos;
+
+  CREATE TRIGGER pagos_estado_alta AFTER INSERT ON pagos
+  BEGIN ${recalcularEstado('NEW.transaccion_id')} END;
+
+  CREATE TRIGGER pagos_estado_baja AFTER DELETE ON pagos
+  BEGIN ${recalcularEstado('OLD.transaccion_id')} END;
+
+  CREATE TRIGGER pagos_estado_cambio AFTER UPDATE OF monto, fecha, transaccion_id ON pagos
+  BEGIN ${recalcularEstado('OLD.transaccion_id')} ${recalcularEstado('NEW.transaccion_id')} END;
+
+  CREATE TRIGGER transacciones_estado_monto AFTER UPDATE OF monto ON transacciones
+  WHEN EXISTS (SELECT 1 FROM pagos WHERE transaccion_id = NEW.id)
+  BEGIN ${recalcularEstado('NEW.id')} END;
+
+  CREATE TRIGGER transacciones_borra_pagos AFTER DELETE ON transacciones
+  BEGIN DELETE FROM pagos WHERE transaccion_id = OLD.id; END;
+`;
+
+async function instalarTriggersSync(db: SQLiteDatabase) {
+  for (const tabla of ['reglas_recurrentes', 'transacciones', 'pagos', 'precios'] as const) {
+    await db.execAsync(triggersSync(tabla));
+  }
+  await db.execAsync(TRIGGERS_PAGOS);
+}
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   let currentVersion = row?.user_version ?? 0;
-  if (currentVersion >= DATABASE_VERSION) return;
+  if (currentVersion >= DATABASE_VERSION) {
+    await instalarTriggersSync(db);
+    return;
+  }
 
   if (currentVersion === 0) {
     await db.execAsync(`
@@ -186,7 +341,116 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
     currentVersion = 7;
   }
 
+  if (currentVersion === 7) {
+    // v8: sincronización con Supabase. Cada fila sincronizable recibe un uuid
+    // (el id numérico solo vale en este dispositivo) y la hora de su último
+    // cambio, que decide los conflictos: gana el cambio más reciente.
+    //
+    // Los triggers anotan en sync_cola todo alta, cambio o baja, así las
+    // consultas de la app no tuvieron que enterarse de que existe la nube.
+    await db.execAsync(`
+      ALTER TABLE reglas_recurrentes ADD COLUMN uuid TEXT;
+      ALTER TABLE reglas_recurrentes ADD COLUMN actualizado TEXT;
+      ALTER TABLE transacciones ADD COLUMN uuid TEXT;
+      ALTER TABLE transacciones ADD COLUMN actualizado TEXT;
+      ALTER TABLE precios ADD COLUMN uuid TEXT;
+      ALTER TABLE precios ADD COLUMN actualizado TEXT;
+
+      UPDATE reglas_recurrentes SET uuid = ${UUID_SQL};
+      UPDATE precios SET uuid = ${UUID_SQL};
+      -- Ocurrencias de regla: uuid derivado de regla + vencimiento original,
+      -- igual que el que les pone el trigger. Si hubiera dos de la misma regla
+      -- y día (no debería), solo la primera lo toma; la otra va al azar.
+      UPDATE transacciones
+         SET uuid = (SELECT r.uuid FROM reglas_recurrentes r WHERE r.id = transacciones.regla_recurrente_id)
+                    || ':' || COALESCE(venc_regla, venc, fecha)
+       WHERE regla_recurrente_id IS NOT NULL
+         AND id = (SELECT MIN(t2.id) FROM transacciones t2
+                    WHERE t2.regla_recurrente_id = transacciones.regla_recurrente_id
+                      AND COALESCE(t2.venc_regla, t2.venc, t2.fecha)
+                          = COALESCE(transacciones.venc_regla, transacciones.venc, transacciones.fecha));
+      UPDATE transacciones SET uuid = ${UUID_SQL} WHERE uuid IS NULL;
+
+      UPDATE reglas_recurrentes SET actualizado = ${AHORA_SQL};
+      UPDATE transacciones SET actualizado = ${AHORA_SQL};
+      UPDATE precios SET actualizado = ${AHORA_SQL};
+
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_reglas_uuid ON reglas_recurrentes(uuid);
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_transacciones_uuid ON transacciones(uuid);
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_precios_uuid ON precios(uuid);
+
+      -- Cambios locales que todavía no subieron. Una fila por registro: si se
+      -- edita tres veces antes de sincronizar, sube una vez, con lo último.
+      CREATE TABLE IF NOT EXISTS sync_cola (
+        tabla TEXT NOT NULL,
+        uuid TEXT NOT NULL,
+        borrado INTEGER NOT NULL DEFAULT 0,
+        actualizado TEXT NOT NULL,
+        PRIMARY KEY (tabla, uuid)
+      );
+
+      -- Estado de la sincronización: usuario dueño de los datos, cursores de
+      -- descarga, id del dispositivo y la bandera 'aplicando'.
+      CREATE TABLE IF NOT EXISTS sync_meta (
+        clave TEXT PRIMARY KEY,
+        valor TEXT
+      );
+
+      -- Uso de la app, para entender cómo se usa. Sube con la sincronización.
+      CREATE TABLE IF NOT EXISTS eventos_cola (
+        id TEXT PRIMARY KEY,
+        tipo TEXT NOT NULL,
+        props TEXT,
+        ocurrido TEXT NOT NULL
+      );
+
+      INSERT OR IGNORE INTO sync_meta (clave, valor) VALUES ('dispositivo_id', ${UUID_SQL});
+    `);
+    // Los triggers se instalan al final (instalarTriggersSync), no acá.
+    currentVersion = 8;
+  }
+
+  if (currentVersion === 8) {
+    // v9: pagos y cobros parciales. Cada concepto (transacción) conserva su
+    // única fecha de vencimiento; lo que se va pagando son filas de `pagos`.
+    // Pagado = suma de pagos, saldo = monto - pagado, y el estado se deriva.
+    //
+    // Lo ya marcado como pagado pasa a tener un pago por el total, fechado el
+    // día en que se pagó (o el vencimiento, si no se sabe). Su uuid sale del
+    // concepto: si dos dispositivos migran el mismo, generan el mismo pago.
+    // Lleva la hora más vieja posible, como lo generado por reglas: cualquier
+    // cambio real le gana.
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS pagos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaccion_id INTEGER NOT NULL REFERENCES transacciones(id) ON DELETE CASCADE,
+        monto REAL NOT NULL CHECK (monto > 0),
+        fecha TEXT NOT NULL,
+        nota TEXT,
+        uuid TEXT,
+        actualizado TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_pagos_transaccion ON pagos(transaccion_id);
+      CREATE INDEX IF NOT EXISTS idx_pagos_fecha ON pagos(fecha);
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_pagos_uuid ON pagos(uuid);
+
+      INSERT INTO pagos (transaccion_id, monto, fecha, uuid, actualizado)
+        SELECT id, monto, COALESCE(pagado_en, venc, fecha), COALESCE(uuid, ${UUID_SQL}) || ':pago', '${HORA_GENERADA}'
+          FROM transacciones
+         WHERE estado = 'pagado' AND monto > 0;
+
+      -- Con una cuenta ya vinculada, los pagos nuevos tienen que subir: los
+      -- conceptos ya están en la nube. Sin cuenta no se anota nada (lo decide
+      -- el usuario al entrar, igual que en la v8).
+      INSERT OR REPLACE INTO sync_cola (tabla, uuid, borrado, actualizado)
+        SELECT 'pagos', uuid, 0, actualizado FROM pagos
+         WHERE EXISTS (SELECT 1 FROM sync_meta WHERE clave = 'usuario_id' AND valor IS NOT NULL);
+    `);
+    currentVersion = 9;
+  }
+
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
+  await instalarTriggersSync(db);
 }
 
 async function seed(db: SQLiteDatabase) {

@@ -39,4 +39,5 @@ export function agruparPendientes(filas: TransaccionVista[]): PendienteAgrupado[
   return out;
 }
 
-export const sumar = (filas: TransaccionVista[]) => filas.reduce((a, t) => a + t.monto, 0);
+/** Lo que falta pagar: el saldo, no el total (un parcial ya pagó una parte). */
+export const sumar = (filas: TransaccionVista[]) => filas.reduce((a, t) => a + (t.saldo ?? t.monto), 0);

@@ -16,12 +16,12 @@ import { useLayout } from '../lib/layout';
  */
 export function IngresosScreen() {
   const { contenido, pc } = useLayout();
-  const { ingresos, alternar, abrirEdicion, mover, estadisticas, fuentes, porPagar } = useData();
+  const { ingresos, abrirEdicion, mover, estadisticas, fuentes, porPagar } = useData();
   const { ancla } = usePeriodo();
   // Mientras se arrastra una tarjeta, la pantalla no scrollea.
   const [arrastrando, setArrastrando] = useState(false);
   const porCobrar = useMemo(
-    () => porPagar.filter((t) => t.tipo === 'ingreso').reduce((a, t) => a + t.monto, 0),
+    () => porPagar.filter((t) => t.tipo === 'ingreso').reduce((a, t) => a + t.saldo, 0),
     [porPagar]
   );
   const sugerencias = useMemo(
@@ -62,7 +62,6 @@ export function IngresosScreen() {
           items={ingresos}
           tipo="ingreso"
           mes={ancla.slice(0, 7)}
-          onToggle={alternar}
           onEdit={abrirEdicion}
           onMover={(t, fecha) => mover(t.id, fecha)}
           onArrastrando={setArrastrando}

@@ -45,14 +45,15 @@ describe('serieBarras', () => {
     expect(serieBarras({ g: 'mes', ancla: '2026-02-10', hoy: HOY, movs: [] })).toHaveLength(28);
   });
 
-  it('vista Año: pasados suman lo registrado; futuros salen de la proyección', () => {
+  it('vista Año: pasados suman lo pagado; futuros salen de la proyección', () => {
     const s = serieBarras({
       g: 'anio', ancla: HOY, hoy: HOY,
       movs: [g('2026-09-05', 100, { estado: 'pendiente' }), g('2026-09-20', 50), i('2026-09-01', 1000), g('2026-11-05', 999, { estado: 'pendiente' })],
       proyeccion: [{ mes: '2026-11', ingresos: 10, egresos: 20, diferencia: -10, acumulado: -10 }],
     });
     const m = Object.fromEntries(s.map((b) => [b.clave, [b.ingresos, b.egresos]]));
-    expect(m['2026-09']).toEqual([1000, 150]);
+    // Septiembre ya pasó: cuenta lo pagado, no el vencimiento impago de 100.
+    expect(m['2026-09']).toEqual([1000, 50]);
     // El pendiente de noviembre ya está dentro de la proyección: no se suma dos veces.
     expect(m['2026-11']).toEqual([10, 20]);
   });
@@ -105,5 +106,33 @@ describe('gastosPorCategoria', () => {
     expect(r.total).toBe(600);
     expect(r.pendiente).toBe(80);
     expect(r.categorias.map((c) => c.id)).toEqual(['salario', 'extras']);
+  });
+
+  it('con pagos: suma lo pagado en el período (fecha de pago), parciales incluidos', () => {
+    const movs = [
+      g('2026-10-03', 100, { estado: 'pendiente', pagado: 40, saldo: 60, categoria_id: 'servicios' }),
+      g('2026-09-20', 500, { estado: 'pagado', pagado: 500, saldo: 0 }),
+    ];
+    const pagos = [
+      { tipo: 'gasto' as const, monto: 40, moneda: 'ARS', fecha: '2026-10-01', categoria_id: 'servicios' },
+      // Lo de septiembre se pagó recién en octubre: cuenta en octubre.
+      { tipo: 'gasto' as const, monto: 500, moneda: 'ARS', fecha: '2026-10-02', categoria_id: 'comida' },
+    ];
+    const r = gastosPorCategoria(movs, rangoPeriodo('mes', HOY), 'ARS', 'gasto', pagos);
+    expect(r.total).toBe(540);
+    expect(r.pendiente).toBe(60);
+    expect(r.categorias.map((c) => [c.id, c.monto])).toEqual([['comida', 500], ['servicios', 40]]);
+  });
+});
+
+describe('serieBarras con pagos', () => {
+  it('lo pasado es lo pagado por día de pago; lo que viene, el saldo', () => {
+    const s = serieBarras({
+      g: 'mes', ancla: HOY, hoy: HOY,
+      movs: [g('2026-10-03', 100, { estado: 'pendiente', pagado: 40, saldo: 60 })],
+      pagos: [{ tipo: 'gasto', monto: 40, moneda: 'ARS', fecha: '2026-10-01' }],
+    });
+    expect(s[0]).toMatchObject({ clave: '2026-10-01', egresos: 40, real: true });
+    expect(s[2]).toMatchObject({ clave: '2026-10-03', egresos: 60, real: false });
   });
 });

@@ -7,7 +7,7 @@ import { usePeriodo } from './PeriodoProvider';
 
 /** Barras del período elegido, armadas en memoria con lo que ya cargó DataProvider. */
 export function useBarras(moneda: string = MONEDA_DEFAULT) {
-  const { gastos, ingresos, proyeccionGraficos } = useData();
+  const { gastos, ingresos, pagos, proyeccionGraficos } = useData();
   const { g, ancla } = usePeriodo();
   return useMemo(
     () =>
@@ -16,20 +16,21 @@ export function useBarras(moneda: string = MONEDA_DEFAULT) {
         ancla,
         hoy: hoyISO(),
         movs: [...gastos, ...ingresos],
+        pagos,
         proyeccion: proyeccionGraficos[moneda] ?? [],
         moneda,
       }),
-    [g, ancla, gastos, ingresos, proyeccionGraficos, moneda]
+    [g, ancla, gastos, ingresos, pagos, proyeccionGraficos, moneda]
   );
 }
 
 /** Gasto pagado (o ingreso cobrado) por categoría en el período elegido. */
 export function useCategoriasPeriodo(moneda: string = MONEDA_DEFAULT, tipo: 'gasto' | 'ingreso' = 'gasto') {
-  const { gastos, ingresos } = useData();
+  const { gastos, ingresos, pagos } = useData();
   const { g, ancla } = usePeriodo();
   const movs = tipo === 'gasto' ? gastos : ingresos;
   return useMemo(
-    () => gastosPorCategoria(movs, rangoPeriodo(g, ancla), moneda, tipo),
-    [g, ancla, movs, moneda, tipo]
+    () => gastosPorCategoria(movs, rangoPeriodo(g, ancla), moneda, tipo, pagos),
+    [g, ancla, movs, pagos, moneda, tipo]
   );
 }

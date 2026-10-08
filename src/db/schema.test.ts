@@ -63,7 +63,7 @@ describe('migración — instalación nueva', () => {
     const db = crearDbFake();
     await migrateDbIfNeeded(db);
 
-    expect(await version(db)).toBe(7);
+    expect(await version(db)).toBe(9);
     expect(await columnas(db, 'reglas_recurrentes')).toEqual(
       expect.arrayContaining(['dia_semana', 'mes_anio', 'fecha_fin'])
     );
@@ -151,7 +151,7 @@ describe('migración v3 -> v4 sobre una base con datos', () => {
 
     const n = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) as n FROM transacciones');
     expect(n!.n).toBe(3);
-    expect(await version(db)).toBe(7);
+    expect(await version(db)).toBe(9);
     db.cerrar();
   });
 });
@@ -175,7 +175,40 @@ describe('migración v4 -> v5 (precios)', () => {
     const tx = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM transacciones');
     expect(n!.n).toBe(0);
     expect(tx!.n).toBe(3);
-    expect(await version(db)).toBe(7);
+    expect(await version(db)).toBe(9);
+    db.cerrar();
+  });
+});
+
+describe('migración v7 -> v8 (sincronización)', () => {
+  it('da un uuid único a cada registro existente, sin anotarlos para subir', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+
+    const tx = await db.getAllAsync<{ uuid: string; regla_recurrente_id: number | null; actualizado: string }>(
+      'SELECT uuid, regla_recurrente_id, actualizado FROM transacciones'
+    );
+    expect(tx).toHaveLength(3);
+    expect(new Set(tx.map((t) => t.uuid)).size).toBe(3);
+    expect(tx.every((t) => t.actualizado)).toBe(true);
+    // La cuota del alquiler toma el uuid derivado de su regla y su vencimiento.
+    const regla = await db.getFirstAsync<{ uuid: string }>("SELECT uuid FROM reglas_recurrentes WHERE nombre = 'Alquiler'");
+    expect(tx.find((t) => t.regla_recurrente_id === 1)!.uuid).toBe(`${regla!.uuid}:2026-09-05`);
+    // Lo que ya había no sube solo: eso lo decide el usuario al entrar a su cuenta.
+    const cola = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM sync_cola');
+    expect(cola!.n).toBe(0);
+    db.cerrar();
+  });
+
+  it('deja los triggers andando y un id de dispositivo', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+
+    await db.runAsync("UPDATE transacciones SET monto = 1 WHERE nombre = 'Super'");
+    const cola = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM sync_cola');
+    const disp = await db.getFirstAsync<{ valor: string }>("SELECT valor FROM sync_meta WHERE clave = 'dispositivo_id'");
+    expect(cola!.n).toBe(1);
+    expect(disp!.valor).toMatch(/^[0-9a-f-]{36}$/);
     db.cerrar();
   });
 });
@@ -193,6 +226,59 @@ describe('migración v5 -> v6 (categorías nuevas)', () => {
     await db.runAsync(
       "INSERT INTO transacciones (tipo,nombre,categoria_id,monto,fecha) VALUES ('gasto','Pasaje','viajes',1000,'2026-10-03')"
     );
+    db.cerrar();
+  });
+});
+
+describe('migración v8 -> v9 (pagos parciales)', () => {
+  const pagos = (db: DbFake) =>
+    db.getAllAsync<{ nombre: string; monto: number; fecha: string; uuid: string; tx_uuid: string }>(
+      `SELECT t.nombre, p.monto, p.fecha, p.uuid, t.uuid AS tx_uuid
+         FROM pagos p JOIN transacciones t ON t.id = p.transaccion_id ORDER BY t.nombre`
+    );
+
+  it('cada concepto pagado recibe un pago por el total, con su fecha de pago', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+
+    const ps = await pagos(db);
+    // Alquiler: pagado_en (rellenado en la v4 con la fecha). Super: sin pagado_en
+    // ni vencimiento propio, cae en el vencimiento (= fecha desde la v4).
+    expect(ps.map((p) => [p.nombre, p.monto, p.fecha])).toEqual([
+      ['Alquiler', 350000, '2026-09-01'],
+      ['Super', 82000, '2026-09-08'],
+    ]);
+    // uuid derivado del concepto: dos dispositivos que migran lo mismo coinciden.
+    expect(ps.every((p) => p.uuid === `${p.tx_uuid}:pago`)).toBe(true);
+    // Los pendientes no reciben nada, y los estados no cambian.
+    const estados = await db.getAllAsync<{ nombre: string; estado: string }>(
+      'SELECT nombre, estado FROM transacciones ORDER BY nombre'
+    );
+    expect(estados).toEqual([
+      { nombre: 'Alquiler', estado: 'pagado' },
+      { nombre: 'Internet', estado: 'pendiente' },
+      { nombre: 'Super', estado: 'pagado' },
+    ]);
+    // Sin cuenta vinculada no se anota nada para subir.
+    expect((await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) n FROM sync_cola'))!.n).toBe(0);
+    db.cerrar();
+  });
+
+  it('con una cuenta vinculada, los pagos migrados quedan anotados para subir', async () => {
+    const db = await baseV3();
+    await migrateDbIfNeeded(db);
+    // Volver a una v8 con cuenta: sin tabla de pagos (ni sus triggers) y con usuario.
+    await db.execAsync(`
+      DROP TABLE pagos;
+      DELETE FROM sync_cola;
+      INSERT INTO sync_meta (clave, valor) VALUES ('usuario_id', 'u1');
+      PRAGMA user_version = 8;
+    `);
+    await migrateDbIfNeeded(db);
+
+    const cola = await db.getAllAsync<{ tabla: string }>('SELECT tabla FROM sync_cola');
+    expect(cola.map((c) => c.tabla)).toEqual(['pagos', 'pagos']);
+    expect(await version(db)).toBe(9);
     db.cerrar();
   });
 });

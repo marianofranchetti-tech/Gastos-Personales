@@ -5,14 +5,13 @@
 `render.yaml` publica la app como **sitio estático** en Render: el build de Expo
 para web, con SQLite corriendo dentro del navegador (wa-sqlite / WASM).
 
-No hay backend. La base de datos vive en el navegador de cada visitante, así que:
+Con las variables de Supabase cargadas en Render (ver `SUPABASE.md`), cada
+visitante entra con su cuenta (Google o mail) y sus datos se sincronizan con el
+teléfono y con cualquier otro navegador.
 
-- cada persona que entra arranca con su propia base y el seed de ejemplo;
-- los datos **no** se sincronizan entre dispositivos ni entre navegadores;
-- si el usuario borra los datos del sitio, se pierde todo.
-
-Sirve para mostrar la app, probarla y compartir un link. No es la versión usable
-en serio: para eso hace falta el backend de la Etapa 3.
+Sin esas variables no hay backend: la base vive solo en el navegador de cada
+visitante, arranca con el seed de ejemplo y, si se borran los datos del sitio,
+se pierde todo.
 
 ## Pasos
 

@@ -6,6 +6,8 @@ import { BalanceMes } from '../components/BalanceMes';
 import { GraficoCategorias } from '../components/GraficoCategorias';
 import { ModalOpciones } from '../components/ModalOpciones';
 import { ModalDepurar } from '../components/ModalDepurar';
+import { ModalRepetidos } from '../components/ModalRepetidos';
+import { conceptosRepetidos } from '../lib/calendario';
 import { SaludFinanciera } from '../components/SaludFinanciera';
 import { SelectorPeriodo } from '../components/SelectorPeriodo';
 import { T } from '../lib/theme';
@@ -20,19 +22,21 @@ import { sugerenciasBalance } from '../lib/sugerencias';
  * gráficos), para que al cambiar el filtro se mueva un solo lado.
  */
 export function InicioScreen() {
-  const { estadisticas, limpiar, porPagar } = useData();
+  const { estadisticas, limpiar, porPagar, gastos, ingresos } = useData();
   const { totG, totI, pendCobro } = useResumenMes();
   const { contenido, pc } = useLayout();
 
   const totales = useMemo(
     () => ({
-      aPagar: porPagar.filter((t) => t.tipo === 'gasto').reduce((a, t) => a + t.monto, 0),
-      aCobrar: porPagar.filter((t) => t.tipo === 'ingreso').reduce((a, t) => a + t.monto, 0),
+      aPagar: porPagar.filter((t) => t.tipo === 'gasto').reduce((a, t) => a + t.saldo, 0),
+      aCobrar: porPagar.filter((t) => t.tipo === 'ingreso').reduce((a, t) => a + t.saldo, 0),
     }),
     [porPagar]
   );
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
   const [depurando, setDepurando] = useState(false);
+  const repetidos = useMemo(() => conceptosRepetidos([...gastos, ...ingresos]), [gastos, ingresos]);
+  const [viendoRepetidos, setViendoRepetidos] = useState(false);
 
   const sugerencias = useMemo(
     () =>
@@ -84,6 +88,17 @@ export function InicioScreen() {
           {columnaPeriodo}
         </>
       )}
+
+      {repetidos.length > 0 && (
+        <Pressable onPress={() => setViendoRepetidos(true)} className="pt-3">
+          <Text className="text-[14px] text-center" style={{ color: T.warn }}>
+            {repetidos.length === 1
+              ? 'Hay 1 concepto repetido en un mismo mes: ver'
+              : `Hay ${repetidos.length} conceptos repetidos en un mismo mes: ver`}
+          </Text>
+        </Pressable>
+      )}
+      {viendoRepetidos && <ModalRepetidos items={repetidos} onClose={() => setViendoRepetidos(false)} />}
 
       <Pressable onPress={() => setDepurando(true)} className="pt-3">
         <Text className="text-[14px] text-center" style={{ color: T.muted }}>

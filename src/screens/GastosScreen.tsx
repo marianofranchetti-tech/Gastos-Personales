@@ -13,7 +13,7 @@ import { useResumenMes } from '../lib/useResumenMes';
 
 export function GastosScreen() {
   const { contenido, pc } = useLayout();
-  const { gastos, alternar, abrirEdicion, mover, estadisticas, fijosDelMes } = useData();
+  const { gastos, abrirEdicion, mover, estadisticas, fijosDelMes } = useData();
   const { ancla } = usePeriodo();
   // Mientras se arrastra una tarjeta, la pantalla no scrollea.
   const [arrastrando, setArrastrando] = useState(false);
@@ -58,7 +58,6 @@ export function GastosScreen() {
           items={gastos}
           tipo="gasto"
           mes={ancla.slice(0, 7)}
-          onToggle={alternar}
           onEdit={abrirEdicion}
           onMover={(t, fecha) => mover(t.id, fecha)}
           onArrastrando={setArrastrando}

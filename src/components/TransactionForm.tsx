@@ -9,10 +9,14 @@ import { T } from '../lib/theme';
 import { Estado } from '../db/types';
 import { Alcance, NuevaTransaccion, TransaccionVista } from '../db/queries';
 import { ModalOpciones, OPCIONES_ALCANCE } from './ModalOpciones';
+import { PanelPagos } from './Pagos';
 
 /**
  * Alta y edición de movimientos. Con `inicial` entra en modo edición: precarga
  * los campos, cambia los textos y habilita eliminar.
+ *
+ * En edición, el estado no se elige: sale de los pagos registrados, que se
+ * ven y se cargan acá mismo (pagos parciales incluidos).
  *
  * Cuando el movimiento viene de una regla recurrente, guardar y eliminar
  * preguntan primero el alcance. Nunca se decide por el usuario: cambiar un mes
@@ -61,7 +65,8 @@ export function TransactionForm({
     rec,
     periodo: rec ? periodo : undefined,
     fijo: esG ? fijo : undefined,
-    estado,
+    // Editando, el estado lo deciden los pagos: no se manda.
+    estado: editando ? undefined : estado,
     venc: esG || rec ? venc : undefined,
   });
 
@@ -206,16 +211,18 @@ export function TransactionForm({
                     onChangeText={setVenc}
                   />
                 </Field>
-                <Field label="Estado del pago">
-                  <View className="flex-row gap-2">
-                    <Chip on={estado === 'pendiente'} onPress={() => setEstado('pendiente')}>
-                      Pendiente
-                    </Chip>
-                    <Chip on={estado === 'pagado'} onPress={() => setEstado('pagado')}>
-                      Pagado
-                    </Chip>
-                  </View>
-                </Field>
+                {!editando && (
+                  <Field label="Estado del pago">
+                    <View className="flex-row gap-2">
+                      <Chip on={estado === 'pendiente'} onPress={() => setEstado('pendiente')}>
+                        Pendiente
+                      </Chip>
+                      <Chip on={estado === 'pagado'} onPress={() => setEstado('pagado')}>
+                        Pagado
+                      </Chip>
+                    </View>
+                  </Field>
+                )}
               </>
             )}
             {!esG && (
@@ -231,17 +238,27 @@ export function TransactionForm({
                     />
                   </Field>
                 )}
-                <Field label="Estado del cobro">
-                  <View className="flex-row gap-2">
-                    <Chip on={estado === 'pendiente'} onPress={() => setEstado('pendiente')}>
-                      Pendiente
-                    </Chip>
-                    <Chip on={estado === 'pagado'} onPress={() => setEstado('pagado')}>
-                      Cobrado
-                    </Chip>
-                  </View>
-                </Field>
+                {!editando && (
+                  <Field label="Estado del cobro">
+                    <View className="flex-row gap-2">
+                      <Chip on={estado === 'pendiente'} onPress={() => setEstado('pendiente')}>
+                        Pendiente
+                      </Chip>
+                      <Chip on={estado === 'pagado'} onPress={() => setEstado('pagado')}>
+                        Cobrado
+                      </Chip>
+                    </View>
+                  </Field>
+                )}
               </>
+            )}
+
+            {inicial && (
+              <Field label={esG ? 'Pagos' : 'Cobros'}>
+                <View className="rounded-lg border p-3" style={{ borderColor: T.border, backgroundColor: T.surface }}>
+                  <PanelPagos id={inicial.id} />
+                </View>
+              </Field>
             )}
 
             <Pressable
