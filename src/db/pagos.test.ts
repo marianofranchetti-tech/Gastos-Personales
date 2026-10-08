@@ -166,6 +166,14 @@ describe('estado derivado', () => {
     expect(t).toMatchObject({ estado: 'pagado', saldo: 0 });
   });
 
+  it('crear como pagado algo que vence más adelante lo paga hoy', async () => {
+    await crearTransaccion(db, {
+      tipo: 'gasto', nombre: 'Seguro', monto: 90, categoria_id: 'casa', fecha: '2026-09-25', venc: '2026-09-25', rec: false, estado: 'pagado',
+    });
+    const [p] = await getPagos(db);
+    expect(p.fecha).toBe('2026-09-10');
+  });
+
   it('editar un parcial sin tocar el estado no borra sus pagos', async () => {
     const id = await insertarTx(db, { nombre: 'Gas', monto: 100, venc: '2026-09-20' });
     await registrarPago(db, id, { monto: 30 });

@@ -137,9 +137,13 @@ export async function crearTransaccion(db: SQLiteDatabase, input: NuevaTransacci
     input.venc ?? null,
     reglaId
   );
-  // Cargado como ya pagado: un pago por el total, el día del movimiento. El
-  // estado lo pone el trigger de pagos.
-  if (estado === 'pagado') await saldar(db, r.lastInsertRowId, input.fecha);
+  // Cargado como ya pagado: un pago por el total, el día del movimiento, o hoy
+  // si vence más adelante (no hay pagos en el futuro). El estado lo pone el
+  // trigger de pagos.
+  if (estado === 'pagado') {
+    const hoy = hoyISO();
+    await saldar(db, r.lastInsertRowId, input.fecha < hoy ? input.fecha : hoy);
+  }
 }
 
 // ---------------------------------------------------------------------------
