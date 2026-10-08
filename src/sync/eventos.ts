@@ -16,6 +16,8 @@ export type TipoEvento =
   | 'movimiento_pagado'
   | 'movimiento_estado'
   | 'movimiento_movido'
+  | 'pago_registrado'
+  | 'pago_eliminado'
   | 'precio_guardado'
   | 'precio_eliminado'
   | 'datos_limpiados'

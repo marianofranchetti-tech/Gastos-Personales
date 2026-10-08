@@ -6,7 +6,16 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { EventoRemoto, FilaRemota, Remoto, TablaSync } from './motor';
+import { TablaInexistente, type EventoRemoto, type FilaRemota, type Remoto, type TablaSync } from './motor';
+
+/** PostgREST: tabla fuera del caché del esquema; Postgres: relación inexistente. */
+const SIN_TABLA = ['PGRST205', '42P01'];
+
+function revisar(tabla: TablaSync, error: { code?: string } | null) {
+  if (!error) return;
+  if (error.code && SIN_TABLA.includes(error.code)) throw new TablaInexistente(tabla);
+  throw error;
+}
 
 export function remotoSupabase(supabase: SupabaseClient, usuarioId: string): Remoto {
   return {
@@ -18,13 +27,13 @@ export function remotoSupabase(supabase: SupabaseClient, usuarioId: string): Rem
         .gt('servidor_actualizado', desde)
         .order('servidor_actualizado', { ascending: true })
         .limit(limite);
-      if (error) throw error;
+      revisar(tabla, error);
       return (data ?? []) as FilaRemota[];
     },
 
     async subir(tabla: TablaSync, filas: FilaRemota[]) {
       const { error } = await supabase.from(tabla).upsert(filas, { onConflict: 'user_id,id' });
-      if (error) throw error;
+      revisar(tabla, error);
     },
 
     async subirEventos(eventos: EventoRemoto[]) {

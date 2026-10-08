@@ -20,10 +20,24 @@
  */
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export type TablaSync = 'reglas_recurrentes' | 'transacciones' | 'precios';
+export type TablaSync = 'reglas_recurrentes' | 'transacciones' | 'pagos' | 'precios';
 
-/** Orden de aplicación: las reglas antes que las transacciones que las nombran. */
-export const TABLAS: TablaSync[] = ['reglas_recurrentes', 'transacciones', 'precios'];
+/**
+ * Orden de aplicación: cada tabla después de la que nombra (las reglas antes
+ * que las transacciones, y estas antes que sus pagos).
+ */
+export const TABLAS: TablaSync[] = ['reglas_recurrentes', 'transacciones', 'pagos', 'precios'];
+
+/**
+ * La nube todavía no tiene esta tabla: la app se actualizó antes de correr la
+ * migración de Supabase. No es un error de la sincronización: esa tabla se
+ * saltea (lo local queda en la cola) y las demás siguen andando.
+ */
+export class TablaInexistente extends Error {
+  constructor(readonly tabla: TablaSync) {
+    super(`La tabla ${tabla} no existe en la nube`);
+  }
+}
 
 /** Columnas de datos que viajan tal cual. `id`, `uuid` y `actualizado` van aparte. */
 const COLUMNAS: Record<TablaSync, string[]> = {
@@ -36,6 +50,8 @@ const COLUMNAS: Record<TablaSync, string[]> = {
     'tipo', 'nombre', 'categoria_id', 'monto', 'moneda', 'fecha', 'venc', 'estado',
     'pagado_en', 'venc_regla',
   ],
+  // transaccion_id es un id local: viaja traducido al uuid de la transacción.
+  pagos: ['monto', 'fecha', 'nota'],
   precios: ['producto', 'precio', 'moneda', 'comercio', 'categoria_id', 'fecha'],
 };
 
@@ -48,6 +64,8 @@ export type FilaRemota = {
   /** Hora de escritura en el servidor: es el cursor de descarga. */
   servidor_actualizado?: string;
   regla_id?: string | null;
+  /** En pagos: uuid de la transacción. */
+  transaccion_id?: string | null;
   [columna: string]: unknown;
 };
 
@@ -129,14 +147,20 @@ export async function cantidadLocal(db: SQLiteDatabase): Promise<number> {
 export type ResultadoSync = { bajados: number; subidos: number; depurados: number };
 
 export async function bajarCambios(db: SQLiteDatabase, remoto: Remoto): Promise<{ aplicados: number; depurados: number }> {
-  const cambios: Record<TablaSync, FilaRemota[]> = { reglas_recurrentes: [], transacciones: [], precios: [] };
+  const cambios: Record<TablaSync, FilaRemota[]> = { reglas_recurrentes: [], transacciones: [], pagos: [], precios: [] };
   const cursores: Partial<Record<TablaSync, string>> = {};
 
   for (const tabla of TABLAS) {
     const cursor = await leerMeta(db, `cursor_${tabla}`);
     let desde = cursor ? new Date(Date.parse(cursor) - MARGEN_MS).toISOString() : '1970-01-01T00:00:00.000Z';
     for (;;) {
-      const filas = await remoto.traer(tabla, desde, LOTE);
+      let filas: FilaRemota[];
+      try {
+        filas = await remoto.traer(tabla, desde, LOTE);
+      } catch (e) {
+        if (e instanceof TablaInexistente) break;
+        throw e;
+      }
       cambios[tabla].push(...filas);
       const ultimo = filas[filas.length - 1]?.servidor_actualizado;
       if (ultimo && (!cursores[tabla] || ultimo > cursores[tabla]!)) cursores[tabla] = ultimo;
@@ -182,6 +206,17 @@ async function aplicarFila(db: SQLiteDatabase, tabla: TablaSync, f: FilaRemota):
   const horaLocal = local?.actualizado ?? enCola?.actualizado ?? null;
   if (horaLocal && horaLocal >= remota) return 0;
 
+  // Un pago necesita su transacción. Si acá no está (se borró y la baja no
+  // subió todavía), el pago no tiene dónde ir: se saltea.
+  let transaccionLocal: number | null = null;
+  if (tabla === 'pagos' && !f.borrado) {
+    const t = f.transaccion_id
+      ? await db.getFirstAsync<{ id: number }>('SELECT id FROM transacciones WHERE uuid = ?', f.transaccion_id)
+      : null;
+    if (!t) return 0;
+    transaccionLocal = t.id;
+  }
+
   if (f.borrado) {
     if (local) {
       if (tabla === 'reglas_recurrentes') {
@@ -200,6 +235,10 @@ async function aplicarFila(db: SQLiteDatabase, tabla: TablaSync, f: FilaRemota):
         : null;
       extraCols.push('regla_recurrente_id');
       extraVals.push(regla?.id ?? null);
+    }
+    if (tabla === 'pagos') {
+      extraCols.push('transaccion_id');
+      extraVals.push(transaccionLocal);
     }
     const todas = [...cols, ...extraCols];
     const vals = [...valores, ...extraVals];
@@ -228,8 +267,9 @@ async function aplicarFila(db: SQLiteDatabase, tabla: TablaSync, f: FilaRemota):
 /**
  * Red de seguridad: dos ocurrencias de la misma regla para el mismo
  * vencimiento original. Puede pasar si un dispositivo generó la cuota antes de
- * enterarse de que en otro ya existía con otro uuid. Queda la pagada, y si no
- * la más reciente. La otra se borra y su baja sube como cualquier otra.
+ * enterarse de que en otro ya existía con otro uuid. Queda la que tiene más
+ * pagado, y si no la más reciente. La otra se borra (con sus pagos, si tenía) y
+ * su baja sube como cualquier otra.
  */
 async function depurarDuplicados(db: SQLiteDatabase): Promise<number> {
   const r = await db.runAsync(
@@ -237,7 +277,9 @@ async function depurarDuplicados(db: SQLiteDatabase): Promise<number> {
        SELECT id FROM (
          SELECT id, ROW_NUMBER() OVER (
                   PARTITION BY regla_recurrente_id, COALESCE(venc_regla, venc)
-                  ORDER BY (estado = 'pagado') DESC, actualizado DESC, id
+                  ORDER BY (estado = 'pagado') DESC,
+                           (SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.transaccion_id = transacciones.id) DESC,
+                           actualizado DESC, id
                 ) AS n
            FROM transacciones
           WHERE regla_recurrente_id IS NOT NULL AND COALESCE(venc_regla, venc) IS NOT NULL
@@ -255,10 +297,15 @@ type EntradaCola = { tabla: TablaSync; uuid: string; borrado: number; actualizad
 
 export async function subirCambios(db: SQLiteDatabase, remoto: Remoto, usuarioId: string): Promise<number> {
   let subidos = 0;
+  // Tablas que la nube todavía no tiene: lo suyo queda en la cola para después.
+  const faltantes: TablaSync[] = [];
   // Tope de vueltas: si algo se reencola sin parar, no colgamos la app.
   for (let vuelta = 0; vuelta < 20; vuelta++) {
     const cola = await db.getAllAsync<EntradaCola>(
-      'SELECT tabla, uuid, borrado, actualizado FROM sync_cola ORDER BY actualizado LIMIT ?',
+      `SELECT tabla, uuid, borrado, actualizado FROM sync_cola
+        WHERE tabla NOT IN (${faltantes.map(() => '?').join(', ')})
+        ORDER BY actualizado LIMIT ?`,
+      ...faltantes,
       LOTE
     );
     if (cola.length === 0) break;
@@ -272,8 +319,14 @@ export async function subirCambios(db: SQLiteDatabase, remoto: Remoto, usuarioId
         .filter((e) => e.borrado)
         .map((e) => ({ id: e.uuid, user_id: usuarioId, actualizado: e.actualizado, borrado: true }));
 
-      if (altas.length) await remoto.subir(tabla, altas);
-      if (bajas.length) await remoto.subir(tabla, bajas);
+      try {
+        if (altas.length) await remoto.subir(tabla, altas);
+        if (bajas.length) await remoto.subir(tabla, bajas);
+      } catch (e) {
+        if (!(e instanceof TablaInexistente)) throw e;
+        faltantes.push(tabla);
+        continue;
+      }
 
       // Se saca de la cola solo si no cambió mientras subía: si el usuario lo
       // editó en el medio, la entrada nueva tiene otra hora y queda para la próxima.
@@ -306,7 +359,11 @@ async function filasParaSubir(
       ? `SELECT ${cols.map((c) => `t.${c}`).join(', ')}, t.uuid, t.actualizado, r.uuid AS regla_id
            FROM transacciones t LEFT JOIN reglas_recurrentes r ON r.id = t.regla_recurrente_id
           WHERE t.uuid IN (${marcas})`
-      : `SELECT ${cols.join(', ')}, uuid, actualizado FROM ${tabla} WHERE uuid IN (${marcas})`;
+      : tabla === 'pagos'
+        ? `SELECT ${cols.map((c) => `p.${c}`).join(', ')}, p.uuid, p.actualizado, t.uuid AS transaccion_id
+             FROM pagos p JOIN transacciones t ON t.id = p.transaccion_id
+            WHERE p.uuid IN (${marcas})`
+        : `SELECT ${cols.join(', ')}, uuid, actualizado FROM ${tabla} WHERE uuid IN (${marcas})`;
   const filas = await db.getAllAsync<Record<string, unknown>>(sql, ...uuids);
 
   return filas.map((f) => {
@@ -374,6 +431,7 @@ export async function encolarTodo(db: SQLiteDatabase): Promise<void> {
 export async function vaciarLocal(db: SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
     await sinAnotar(db, async () => {
+      await db.runAsync('DELETE FROM pagos');
       await db.runAsync('DELETE FROM transacciones');
       await db.runAsync('DELETE FROM reglas_recurrentes');
       await db.runAsync('DELETE FROM precios');

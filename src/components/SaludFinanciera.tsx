@@ -17,8 +17,8 @@ const colorDe = (n: Nivel) => (n === 'bien' ? T.teal : n === 'aviso' ? T.warn : 
 export function SaludFinanciera() {
   const { estadisticas, porPagar, fijosDelMes } = useData();
   const salud = useMemo(() => {
-    const aPagar = porPagar.filter((t) => t.tipo === 'gasto').reduce((a, t) => a + t.monto, 0);
-    const aCobrar = porPagar.filter((t) => t.tipo === 'ingreso').reduce((a, t) => a + t.monto, 0);
+    const aPagar = porPagar.filter((t) => t.tipo === 'gasto').reduce((a, t) => a + t.saldo, 0);
+    const aCobrar = porPagar.filter((t) => t.tipo === 'ingreso').reduce((a, t) => a + t.saldo, 0);
     return saludFinanciera({ datos: estadisticas, porPagar: aPagar, porCobrar: aCobrar, fijosDelMes });
   }, [estadisticas, porPagar, fijosDelMes]);
 

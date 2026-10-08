@@ -78,7 +78,9 @@ export async function calcularProyeccion(
     moneda: string;
     venc: string;
   }>(
-    `SELECT tipo, monto, moneda, venc FROM transacciones
+    // Lo que ya tiene pagos parciales proyecta solo su saldo.
+    `SELECT tipo, monto - COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.transaccion_id = transacciones.id), 0) AS monto,
+            moneda, venc FROM transacciones
       WHERE estado = 'pendiente' AND regla_recurrente_id IS NULL
         AND venc IS NOT NULL AND venc > ? AND venc <= ?
       ORDER BY venc ASC`,

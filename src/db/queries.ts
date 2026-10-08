@@ -15,26 +15,49 @@ export type TransaccionVista = {
   moneda: string;
   fecha: string;
   venc: string | null;
+  /** 'pagado' = saldado por completo. Para parcial/vencido ver estadoVista. */
   estado: Estado;
   regla_recurrente_id: number | null;
   rec: number; // 0 | 1
   periodo: Periodo | null;
   fijo: number | null; // 0 | 1
+  /** Suma de los pagos (o cobros) registrados. */
+  pagado: number;
+  /** monto - pagado, nunca negativo. */
+  saldo: number;
+  n_pagos: number;
 };
+
+/** Margen para comparar montos REAL: medio centavo. */
+export const CENTAVO = 0.005;
+
+/**
+ * Lo pagado de un concepto. Si no tiene pagos pero figura pagado, vino de una
+ * versión vieja de la app (otro dispositivo sin actualizar): cuenta como
+ * pagado por el total, igual que antes.
+ */
+const PAGADO_SQL = `COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.transaccion_id = t.id),
+                             CASE WHEN t.estado = 'pagado' THEN t.monto ELSE 0 END)`;
+
+const SELECT_VISTA = `
+  SELECT t.id, t.tipo, t.nombre, t.categoria_id, t.monto, t.moneda, t.fecha, t.venc, t.estado,
+         t.regla_recurrente_id,
+         c.emoji as cat_emoji, c.nombre as cat_nombre,
+         r.periodo as periodo, r.fijo as fijo,
+         CASE WHEN t.regla_recurrente_id IS NULL THEN 0 ELSE 1 END as rec,
+         ${PAGADO_SQL} as pagado,
+         MAX(t.monto - ${PAGADO_SQL}, 0) as saldo,
+         (SELECT COUNT(*) FROM pagos p WHERE p.transaccion_id = t.id) as n_pagos
+    FROM transacciones t
+    JOIN categorias c ON c.id = t.categoria_id
+    LEFT JOIN reglas_recurrentes r ON r.id = t.regla_recurrente_id`;
 
 export async function getTransaccionesConRegla(
   db: SQLiteDatabase,
   tipo: TipoTx
 ): Promise<TransaccionVista[]> {
   return db.getAllAsync<TransaccionVista>(
-    `SELECT t.id, t.tipo, t.nombre, t.categoria_id, t.monto, t.moneda, t.fecha, t.venc, t.estado,
-            t.regla_recurrente_id,
-            c.emoji as cat_emoji, c.nombre as cat_nombre,
-            r.periodo as periodo, r.fijo as fijo,
-            CASE WHEN t.regla_recurrente_id IS NULL THEN 0 ELSE 1 END as rec
-     FROM transacciones t
-     JOIN categorias c ON c.id = t.categoria_id
-     LEFT JOIN reglas_recurrentes r ON r.id = t.regla_recurrente_id
+    `${SELECT_VISTA}
      WHERE t.tipo = ?
      ORDER BY t.fecha DESC, t.id DESC`,
     tipo
@@ -100,9 +123,10 @@ export async function crearTransaccion(db: SQLiteDatabase, input: NuevaTransacci
     reglaId = await insertarRegla(db, input, moneda);
   }
 
-  await db.runAsync(
+  const estado = input.estado ?? (input.tipo === 'gasto' ? 'pendiente' : 'pagado');
+  const r = await db.runAsync(
     `INSERT INTO transacciones (tipo, nombre, categoria_id, cuenta_id, monto, moneda, fecha, venc, estado, regla_recurrente_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?)`,
     input.tipo,
     input.nombre,
     input.categoria_id,
@@ -111,22 +135,112 @@ export async function crearTransaccion(db: SQLiteDatabase, input: NuevaTransacci
     moneda,
     input.fecha,
     input.venc ?? null,
-    input.estado ?? (input.tipo === 'gasto' ? 'pendiente' : 'pagado'),
     reglaId
+  );
+  // Cargado como ya pagado: un pago por el total, el día del movimiento. El
+  // estado lo pone el trigger de pagos.
+  if (estado === 'pagado') await saldar(db, r.lastInsertRowId, input.fecha);
+}
+
+// ---------------------------------------------------------------------------
+// Pagos y cobros (parciales o totales)
+// ---------------------------------------------------------------------------
+
+export type Pago = {
+  id: number;
+  transaccion_id: number;
+  monto: number;
+  fecha: string; // día del pago o cobro
+  nota: string | null;
+};
+
+/** Un pago con lo que hace falta del concepto para sumarlo en los gráficos. */
+export type PagoVista = Pago & {
+  tipo: TipoTx;
+  categoria_id: string;
+  moneda: string;
+  /** Pagado sin detalle: viene de una versión vieja (ver PAGADO_SQL). */
+  legado: number; // 0 | 1
+};
+
+/**
+ * Todos los pagos y cobros, más un pago implícito por cada concepto marcado
+ * pagado sin pagos registrados (id negativo = -id del concepto).
+ */
+export async function getPagos(db: SQLiteDatabase): Promise<PagoVista[]> {
+  return db.getAllAsync<PagoVista>(
+    `SELECT p.id, p.transaccion_id, p.monto, p.fecha, p.nota,
+            t.tipo, t.categoria_id, t.moneda, 0 AS legado
+       FROM pagos p JOIN transacciones t ON t.id = p.transaccion_id
+     UNION ALL
+     SELECT -t.id, t.id, t.monto, COALESCE(t.pagado_en, t.venc, t.fecha), NULL,
+            t.tipo, t.categoria_id, t.moneda, 1
+       FROM transacciones t
+      WHERE t.estado = 'pagado' AND NOT EXISTS (SELECT 1 FROM pagos p WHERE p.transaccion_id = t.id)
+     ORDER BY 4 DESC, 1 DESC`
   );
 }
 
-export async function alternarEstado(db: SQLiteDatabase, id: number) {
-  // pagado_en acompaña al estado: si vuelve a pendiente, la fecha de pago
-  // deja de existir. Si no, quedaría una fecha de pago sobre algo impago.
-  await db.runAsync(
-    `UPDATE transacciones
-        SET estado    = CASE estado WHEN 'pagado' THEN 'pendiente' ELSE 'pagado' END,
-            pagado_en = CASE estado WHEN 'pagado' THEN NULL ELSE ? END
-      WHERE id = ?`,
-    hoyISO(),
+async function saldoDe(db: SQLiteDatabase, id: number): Promise<number | null> {
+  const r = await db.getFirstAsync<{ saldo: number }>(
+    `SELECT MAX(t.monto - ${PAGADO_SQL}, 0) AS saldo FROM transacciones t WHERE t.id = ?`,
     id
   );
+  return r ? r.saldo : null;
+}
+
+export class PagoInvalido extends Error {}
+
+/**
+ * Registra un pago (o cobro) parcial o total. No puede superar el saldo: un
+ * concepto pagado de más no tiene sentido, y el exceso es casi siempre un
+ * error de tipeo. El vencimiento del concepto no se toca.
+ */
+export async function registrarPago(
+  db: SQLiteDatabase,
+  transaccionId: number,
+  { monto, fecha, nota }: { monto: number; fecha?: string; nota?: string | null }
+): Promise<void> {
+  const saldo = await saldoDe(db, transaccionId);
+  if (saldo == null) throw new PagoInvalido('El concepto ya no existe.');
+  if (!(monto > 0)) throw new PagoInvalido('El monto tiene que ser mayor que cero.');
+  if (monto > saldo + CENTAVO) throw new PagoInvalido('El monto supera el saldo.');
+  await db.runAsync(
+    'INSERT INTO pagos (transaccion_id, monto, fecha, nota) VALUES (?, ?, ?, ?)',
+    transaccionId,
+    Math.min(monto, saldo),
+    fecha ?? hoyISO(),
+    nota?.trim() ? nota.trim() : null
+  );
+}
+
+/** Paga (o cobra) todo el saldo de una vez. Si no queda saldo, no hace nada. */
+export async function saldar(db: SQLiteDatabase, id: number, fecha: string = hoyISO()): Promise<void> {
+  const saldo = await saldoDe(db, id);
+  if (saldo != null && saldo > CENTAVO) await registrarPago(db, id, { monto: saldo, fecha });
+}
+
+/** Borra un pago. El concepto vuelve a tener ese saldo, en el mismo vencimiento. */
+export async function eliminarPago(db: SQLiteDatabase, pagoId: number): Promise<void> {
+  await db.runAsync('DELETE FROM pagos WHERE id = ?', pagoId);
+}
+
+/** Borra todos los pagos: el concepto queda pendiente por el total. */
+export async function volverAPendiente(db: SQLiteDatabase, id: number): Promise<void> {
+  await db.runAsync('DELETE FROM pagos WHERE transaccion_id = ?', id);
+  // Un pagado sin pagos (versión vieja) no dispara el trigger: se pasa a mano.
+  await db.runAsync(
+    "UPDATE transacciones SET estado = 'pendiente', pagado_en = NULL WHERE id = ? AND (estado <> 'pendiente' OR pagado_en IS NOT NULL)",
+    id
+  );
+}
+
+/** El ✓ de siempre: salda lo que falte, o si ya estaba saldado lo vuelve a pendiente. */
+export async function alternarEstado(db: SQLiteDatabase, id: number) {
+  const t = await db.getFirstAsync<{ estado: Estado }>('SELECT estado FROM transacciones WHERE id = ?', id);
+  if (!t) return;
+  if (t.estado === 'pagado') await volverAPendiente(db, id);
+  else await saldar(db, id);
 }
 
 /**
@@ -179,14 +293,7 @@ export async function getPorPagar(
   const limite = sumarDiasISO(hoyISO(), ventana);
 
   return db.getAllAsync<TransaccionVista>(
-    `SELECT t.id, t.tipo, t.nombre, t.categoria_id, t.monto, t.moneda, t.fecha, t.venc, t.estado,
-            t.regla_recurrente_id,
-            c.emoji as cat_emoji, c.nombre as cat_nombre,
-            r.periodo as periodo, r.fijo as fijo,
-            CASE WHEN t.regla_recurrente_id IS NULL THEN 0 ELSE 1 END as rec
-       FROM transacciones t
-       JOIN categorias c ON c.id = t.categoria_id
-       LEFT JOIN reglas_recurrentes r ON r.id = t.regla_recurrente_id
+    `${SELECT_VISTA}
       WHERE t.estado = 'pendiente'
         AND t.venc IS NOT NULL AND t.venc <= ?
         AND (? IS NULL OR t.tipo = ?)
@@ -197,21 +304,14 @@ export async function getPorPagar(
   );
 }
 
-/** Marca una transacción como pagada y registra el día real de pago. */
+/** Marca una transacción como pagada: registra un pago por el saldo, con fecha de hoy. */
 export async function marcarPagada(db: SQLiteDatabase, id: number): Promise<void> {
-  await db.runAsync(
-    "UPDATE transacciones SET estado = 'pagado', pagado_en = ? WHERE id = ?",
-    hoyISO(),
-    id
-  );
+  await saldar(db, id);
 }
 
-/** Vuelve una transacción a pendiente y borra la fecha de pago. */
+/** Vuelve una transacción a pendiente: borra sus pagos y la fecha de pago. */
 export async function marcarPendiente(db: SQLiteDatabase, id: number): Promise<void> {
-  await db.runAsync(
-    "UPDATE transacciones SET estado = 'pendiente', pagado_en = NULL WHERE id = ?",
-    id
-  );
+  await volverAPendiente(db, id);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,9 +340,11 @@ async function terminarRegla(db: SQLiteDatabase, reglaId: number, desdeISO: stri
     sumarDiasISO(desdeISO, -1),
     reglaId
   );
+  // Lo que tiene algún pago tampoco se borra: ya es historia, aunque falte saldo.
   await db.runAsync(
     `DELETE FROM transacciones
-      WHERE regla_recurrente_id = ? AND estado = 'pendiente' AND venc >= ?`,
+      WHERE regla_recurrente_id = ? AND estado = 'pendiente' AND venc >= ?
+        AND NOT EXISTS (SELECT 1 FROM pagos p WHERE p.transaccion_id = transacciones.id)`,
     reglaId,
     desdeISO
   );
@@ -298,7 +400,6 @@ export async function actualizarTransaccion(
   if (!actual) return;
 
   const moneda = input.moneda ?? MONEDA_DEFAULT;
-  const estado = input.estado ?? 'pendiente';
   const venc = input.venc ?? input.fecha;
   const desde = actual.venc ?? input.fecha;
 
@@ -313,9 +414,7 @@ export async function actualizarTransaccion(
                   THEN COALESCE(venc_regla, venc)
                 ELSE venc_regla
               END,
-              venc = ?,
-              estado = ?,
-              pagado_en = CASE WHEN ? = 'pagado' THEN COALESCE(pagado_en, ?) ELSE NULL END
+              venc = ?
         WHERE id = ?`,
       input.nombre,
       input.categoria_id,
@@ -324,11 +423,17 @@ export async function actualizarTransaccion(
       input.fecha,
       venc,
       venc,
-      estado,
-      estado,
-      hoyISO(),
       id
     );
+
+    // El estado sale de los pagos. Si el formulario pide uno, se lleva a eso:
+    // 'pagado' salda lo que falte (hoy) y 'pendiente' borra los pagos, pero
+    // solo si estaba saldado: un parcial que "sigue pendiente" no se toca.
+    if (input.estado) {
+      const ahora = await db.getFirstAsync<{ estado: Estado }>('SELECT estado FROM transacciones WHERE id = ?', id);
+      if (input.estado === 'pagado' && ahora?.estado !== 'pagado') await saldar(db, id);
+      if (input.estado === 'pendiente' && ahora?.estado === 'pagado') await volverAPendiente(db, id);
+    }
 
     const reglaId = actual.regla_recurrente_id;
 
@@ -376,6 +481,7 @@ export async function eliminarTransaccion(
  */
 export async function limpiarDatos(db: SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM pagos');
     await db.runAsync('DELETE FROM transacciones');
     await db.runAsync('DELETE FROM reglas_recurrentes');
   });

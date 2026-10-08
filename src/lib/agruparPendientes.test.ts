@@ -18,6 +18,9 @@ const fila = (id: number, regla: number | null, venc: string, monto = 1000): Tra
   rec: regla ? 1 : 0,
   periodo: regla ? 'mensual' : null,
   fijo: regla ? 1 : null,
+  pagado: 0,
+  saldo: monto,
+  n_pagos: 0,
 });
 
 describe('agruparPendientes', () => {

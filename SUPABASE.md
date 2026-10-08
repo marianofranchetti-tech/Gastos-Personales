@@ -33,6 +33,10 @@ En **SQL Editor**, pegá y corré
 `supabase/migrations/20261005000000_fluxo_sync.sql`. Se puede correr de nuevo
 sin romper nada.
 
+Después corré `supabase/migrations/20261008000000_fluxo_pagos.sql` (pagos y
+cobros parciales). Si la app nueva llega antes que este SQL, sincroniza todo lo
+demás y deja los pagos en su cola local hasta que la tabla exista.
+
 El SQL está probado contra Postgres (PGlite), con `auth.users`, `auth.uid()`
 y los roles simulados. Se comprobó lo siguiente:
 

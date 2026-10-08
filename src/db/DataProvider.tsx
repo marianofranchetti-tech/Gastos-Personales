@@ -5,7 +5,9 @@ import {
   Alcance,
   alternarEstado,
   crearTransaccion,
+  eliminarPago as borrarPago,
   eliminarTransaccion,
+  getPagos,
   getPorPagar,
   getTransaccionesConRegla,
   limpiarDatos,
@@ -14,7 +16,10 @@ import {
   marcarPagada,
   moverFecha,
   NuevaTransaccion,
+  PagoVista,
+  registrarPago as insertarPago,
   TransaccionVista,
+  volverAPendiente,
 } from './queries';
 import { materializarRecurrentes } from './materializar';
 import { calcularProyeccion, ProyeccionPorMoneda } from './proyeccion';
@@ -44,6 +49,8 @@ type DataContextType = {
   gastos: TransaccionVista[];
   ingresos: TransaccionVista[];
   porPagar: TransaccionVista[];
+  /** Pagos y cobros registrados, de todos los conceptos (más reciente primero). */
+  pagos: PagoVista[];
   proyeccion: ProyeccionPorMoneda;
   /** Igual que proyeccion pero a 24 meses, para las barras futuras de los gráficos. */
   proyeccionGraficos: ProyeccionPorMoneda;
@@ -64,6 +71,11 @@ type DataContextType = {
   guardar: (input: NuevaTransaccion) => Promise<void>;
   alternar: (id: number) => Promise<void>;
   pagar: (id: number) => Promise<void>;
+  /** Pago o cobro parcial (o total). Lanza PagoInvalido si supera el saldo. */
+  registrarPago: (transaccionId: number, p: { monto: number; fecha?: string; nota?: string | null }) => Promise<void>;
+  eliminarPago: (pagoId: number) => Promise<void>;
+  /** Borra todos los pagos del concepto: queda pendiente por el total. */
+  despagar: (transaccionId: number) => Promise<void>;
   /** Pasa un movimiento a otro día (vencimiento; la fecha se corre igual). */
   mover: (id: number, fecha: string) => Promise<void>;
   refrescar: () => Promise<void>;
@@ -89,6 +101,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [gastos, setGastos] = useState<TransaccionVista[]>([]);
   const [ingresos, setIngresos] = useState<TransaccionVista[]>([]);
   const [porPagar, setPorPagar] = useState<TransaccionVista[]>([]);
+  const [pagos, setPagos] = useState<PagoVista[]>([]);
   const [proyeccion, setProyeccion] = useState<ProyeccionPorMoneda>({});
   const [proyeccionGraficos, setProyeccionGraficos] = useState<ProyeccionPorMoneda>({});
   const [estadisticas, setEstadisticas] = useState<MesBarra[]>([]);
@@ -100,10 +113,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [editando, setEditando] = useState<TransaccionVista | null>(null);
 
   const refresh = useCallback(async () => {
-    const [g, i, pp, pr, prg, est, fij, fue, pre] = await Promise.all([
+    const [g, i, pp, pa, pr, prg, est, fij, fue, pre] = await Promise.all([
       getTransaccionesConRegla(db, 'gasto'),
       getTransaccionesConRegla(db, 'ingreso'),
       getPorPagar(db),
+      getPagos(db),
       calcularProyeccion(db, HORIZONTE_PROYECCION_MESES),
       calcularProyeccion(db, HORIZONTE_GRAFICOS_MESES),
       estadisticasVentana(db),
@@ -114,6 +128,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setGastos(g);
     setIngresos(i);
     setPorPagar(pp);
+    setPagos(pa);
     setProyeccion(pr);
     setProyeccionGraficos(prg);
     setEstadisticas(est);
@@ -204,6 +219,33 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [db, refresh, anotar]
   );
 
+  const registrarPago = useCallback(
+    async (transaccionId: number, p: { monto: number; fecha?: string; nota?: string | null }) => {
+      await insertarPago(db, transaccionId, p);
+      await refresh();
+      anotar('pago_registrado', { monto: p.monto });
+    },
+    [db, refresh, anotar]
+  );
+
+  const eliminarPago = useCallback(
+    async (pagoId: number) => {
+      await borrarPago(db, pagoId);
+      await refresh();
+      anotar('pago_eliminado');
+    },
+    [db, refresh, anotar]
+  );
+
+  const despagar = useCallback(
+    async (transaccionId: number) => {
+      await volverAPendiente(db, transaccionId);
+      await refresh();
+      anotar('movimiento_estado');
+    },
+    [db, refresh, anotar]
+  );
+
   const mover = useCallback(
     async (id: number, fecha: string) => {
       await moverFecha(db, id, fecha);
@@ -277,6 +319,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         gastos,
         ingresos,
         porPagar,
+        pagos,
         proyeccion,
         proyeccionGraficos,
         estadisticas,
@@ -292,6 +335,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         guardar,
         alternar,
         pagar,
+        registrarPago,
+        eliminarPago,
+        despagar,
         mover,
         refrescar: refresh,
         editando,

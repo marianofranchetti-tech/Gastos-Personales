@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { CATS, CATS_ING, MONEDA_DEFAULT } from '../lib/categorias';
 import { iso, hoy } from '../lib/format';
 
-const DATABASE_VERSION = 8;
+const DATABASE_VERSION = 9;
 
 /** uuid v4 armado en SQL. randomblob se evalúa por fila: cada una recibe el suyo. */
 const UUID_SQL = `lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2)
@@ -40,7 +40,7 @@ const NO_APLICANDO = `(SELECT valor FROM sync_meta WHERE clave = 'aplicando') IS
  *   hace el alta, de arriba) no hace nada, para no pisarla.
  * - Baja: anota la baja en la cola, con la hora en que ocurrió.
  */
-function triggersSync(tabla: 'reglas_recurrentes' | 'transacciones' | 'precios'): string {
+function triggersSync(tabla: 'reglas_recurrentes' | 'transacciones' | 'pagos' | 'precios'): string {
   // Una ocurrencia de regla toma un uuid derivado de la regla y su
   // vencimiento original: dos dispositivos que generan la misma cuota generan
   // el mismo registro. Si ese uuid ya está tomado (una ocurrencia que se
@@ -93,10 +93,67 @@ function triggersSync(tabla: 'reglas_recurrentes' | 'transacciones' | 'precios')
   `;
 }
 
+/** Margen para comparar montos REAL: medio centavo. */
+const CENTAVO = 0.005;
+
+/**
+ * Recalcula el estado guardado de un concepto a partir de sus pagos.
+ *
+ * `estado` y `pagado_en` quedan como caché de "saldado por completo": la
+ * verdad son los pagos. Mantenerlos al día deja andando todo lo que ya los lee
+ * (proyección, reglas, vistas de Supabase, versiones viejas de la app). Solo
+ * escribe si algo cambia, para no anotar cambios vacíos en la cola de sync.
+ */
+function recalcularEstado(idTx: string): string {
+  const pagado = `COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.transaccion_id = ${idTx}), 0)`;
+  const saldado = `(${pagado} >= monto - ${CENTAVO})`;
+  const estado = `CASE WHEN ${saldado} THEN 'pagado' ELSE 'pendiente' END`;
+  const pagadoEn = `CASE WHEN ${saldado} THEN (SELECT MAX(p.fecha) FROM pagos p WHERE p.transaccion_id = ${idTx}) END`;
+  return `UPDATE transacciones SET estado = ${estado}, pagado_en = ${pagadoEn}
+           WHERE id = ${idTx} AND (estado IS NOT ${estado} OR pagado_en IS NOT ${pagadoEn});`;
+}
+
+/**
+ * Triggers de pagos (v9). Igual que los de sync, se reinstalan en cada arranque.
+ *
+ * - Todo alta, baja o cambio de un pago recalcula el estado de su concepto.
+ * - Si cambia el monto de un concepto que tiene pagos, también (subir el
+ *   monto de algo saldado lo vuelve a dejar con saldo).
+ * - Borrar un concepto borra sus pagos. La FK con ON DELETE CASCADE no alcanza:
+ *   expo-sqlite no deja foreign_keys prendido entre arranques.
+ *
+ * No miran la bandera 'aplicando': lo que baja de la nube también tiene que
+ * dejar el estado local coherente (los triggers de sync no lo vuelven a subir).
+ */
+const TRIGGERS_PAGOS = `
+  DROP TRIGGER IF EXISTS pagos_estado_alta;
+  DROP TRIGGER IF EXISTS pagos_estado_baja;
+  DROP TRIGGER IF EXISTS pagos_estado_cambio;
+  DROP TRIGGER IF EXISTS transacciones_estado_monto;
+  DROP TRIGGER IF EXISTS transacciones_borra_pagos;
+
+  CREATE TRIGGER pagos_estado_alta AFTER INSERT ON pagos
+  BEGIN ${recalcularEstado('NEW.transaccion_id')} END;
+
+  CREATE TRIGGER pagos_estado_baja AFTER DELETE ON pagos
+  BEGIN ${recalcularEstado('OLD.transaccion_id')} END;
+
+  CREATE TRIGGER pagos_estado_cambio AFTER UPDATE OF monto, fecha, transaccion_id ON pagos
+  BEGIN ${recalcularEstado('OLD.transaccion_id')} ${recalcularEstado('NEW.transaccion_id')} END;
+
+  CREATE TRIGGER transacciones_estado_monto AFTER UPDATE OF monto ON transacciones
+  WHEN EXISTS (SELECT 1 FROM pagos WHERE transaccion_id = NEW.id)
+  BEGIN ${recalcularEstado('NEW.id')} END;
+
+  CREATE TRIGGER transacciones_borra_pagos AFTER DELETE ON transacciones
+  BEGIN DELETE FROM pagos WHERE transaccion_id = OLD.id; END;
+`;
+
 async function instalarTriggersSync(db: SQLiteDatabase) {
-  for (const tabla of ['reglas_recurrentes', 'transacciones', 'precios'] as const) {
+  for (const tabla of ['reglas_recurrentes', 'transacciones', 'pagos', 'precios'] as const) {
     await db.execAsync(triggersSync(tabla));
   }
+  await db.execAsync(TRIGGERS_PAGOS);
 }
 
 export async function migrateDbIfNeeded(db: SQLiteDatabase) {
@@ -351,6 +408,45 @@ export async function migrateDbIfNeeded(db: SQLiteDatabase) {
     `);
     // Los triggers se instalan al final (instalarTriggersSync), no acá.
     currentVersion = 8;
+  }
+
+  if (currentVersion === 8) {
+    // v9: pagos y cobros parciales. Cada concepto (transacción) conserva su
+    // única fecha de vencimiento; lo que se va pagando son filas de `pagos`.
+    // Pagado = suma de pagos, saldo = monto - pagado, y el estado se deriva.
+    //
+    // Lo ya marcado como pagado pasa a tener un pago por el total, fechado el
+    // día en que se pagó (o el vencimiento, si no se sabe). Su uuid sale del
+    // concepto: si dos dispositivos migran el mismo, generan el mismo pago.
+    // Lleva la hora más vieja posible, como lo generado por reglas: cualquier
+    // cambio real le gana.
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS pagos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaccion_id INTEGER NOT NULL REFERENCES transacciones(id) ON DELETE CASCADE,
+        monto REAL NOT NULL CHECK (monto > 0),
+        fecha TEXT NOT NULL,
+        nota TEXT,
+        uuid TEXT,
+        actualizado TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_pagos_transaccion ON pagos(transaccion_id);
+      CREATE INDEX IF NOT EXISTS idx_pagos_fecha ON pagos(fecha);
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_pagos_uuid ON pagos(uuid);
+
+      INSERT INTO pagos (transaccion_id, monto, fecha, uuid, actualizado)
+        SELECT id, monto, COALESCE(pagado_en, venc, fecha), COALESCE(uuid, ${UUID_SQL}) || ':pago', '${HORA_GENERADA}'
+          FROM transacciones
+         WHERE estado = 'pagado' AND monto > 0;
+
+      -- Con una cuenta ya vinculada, los pagos nuevos tienen que subir: los
+      -- conceptos ya están en la nube. Sin cuenta no se anota nada (lo decide
+      -- el usuario al entrar, igual que en la v8).
+      INSERT OR REPLACE INTO sync_cola (tabla, uuid, borrado, actualizado)
+        SELECT 'pagos', uuid, 0, actualizado FROM pagos
+         WHERE EXISTS (SELECT 1 FROM sync_meta WHERE clave = 'usuario_id' AND valor IS NOT NULL);
+    `);
+    currentVersion = 9;
   }
 
   await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);

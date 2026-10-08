@@ -100,7 +100,33 @@ export type Mov = {
   fecha: string;
   estado?: string;
   categoria_id?: string;
+  /** Suma de pagos. Si falta, se deduce de `estado` (todo o nada). */
+  pagado?: number;
+  /** Lo que falta pagar. Si falta, monto - pagado. */
+  saldo?: number;
+  /** El saldo se ubica en el vencimiento (o en la fecha, si no vence). */
+  venc?: string | null;
 };
+
+/** Plata que efectivamente se movió: un pago o un cobro, en su día. */
+export type Flujo = {
+  tipo: 'gasto' | 'ingreso';
+  monto: number;
+  moneda: string;
+  fecha: string;
+  categoria_id?: string;
+};
+
+const pagadoMov = (t: Mov) => t.pagado ?? (t.estado === 'pagado' ? t.monto : 0);
+const saldoMov = (t: Mov) => t.saldo ?? Math.max(t.monto - pagadoMov(t), 0);
+/** Lo que falta pagar, con la fecha en que vence. */
+const pendienteDe = (t: Mov) => ({ ...t, fecha: t.venc ?? t.fecha, monto: saldoMov(t) });
+
+/** Sin la lista de pagos, cada movimiento cuenta lo pagado en su propia fecha. */
+const flujosDe = (movs: Mov[]): Flujo[] =>
+  movs
+    .filter((t) => pagadoMov(t) > 0)
+    .map((t) => ({ tipo: t.tipo, monto: pagadoMov(t), moneda: t.moneda, fecha: t.fecha, categoria_id: t.categoria_id }));
 
 export type Barra = {
   clave: string;
@@ -201,19 +227,22 @@ function cubos(g: Granularidad, ancla: string): Cubo[] {
 /**
  * Ingresos y gastos por columna.
  *
- * Misma regla que el gráfico de 9 meses de antes, para que los números no
- * cambien según la vista:
- * - Año (columnas = meses): hasta el mes actual inclusive, todo lo registrado,
- *   pagado o no (un vencimiento impago igual es plata que se debe). Meses
- *   posteriores: la proyección de las reglas recurrentes.
- * - Mes (columnas = días del mes), Semana y Día: lo registrado. Los días
- *   futuros solo tienen los vencimientos cargados, y se dibujan como no-reales.
+ * - Lo que ya pasó (columnas hasta hoy, o hasta el mes actual en vista Año):
+ *   lo efectivamente pagado y cobrado, el día del pago. Un pago parcial suma
+ *   lo pagado, no el total del concepto.
+ * - Días y semanas por venir: lo que falta pagar de lo que vence (su saldo),
+ *   dibujado como no-real.
+ * - Meses por venir (vista Año): la proyección de las reglas recurrentes.
+ *
+ * `pagos` son los flujos reales. Si no vienen, cada movimiento cuenta lo
+ * pagado en su propia fecha.
  */
 export function serieBarras({
   g,
   ancla,
   hoy,
   movs,
+  pagos,
   proyeccion = [],
   moneda = 'ARS',
 }: {
@@ -221,6 +250,7 @@ export function serieBarras({
   ancla: string;
   hoy: string;
   movs: Mov[];
+  pagos?: Flujo[];
   proyeccion?: MesProyectado[];
   moneda?: string;
 }): Barra[] {
@@ -228,17 +258,30 @@ export function serieBarras({
   const mesHoy = hoy.slice(0, 7);
   const proy = Object.fromEntries(proyeccion.map((m) => [m.mes, m]));
   const elegido = rangoPeriodo(g, ancla);
+  const esReal = (c: Cubo) => (c.esMes ? c.clave <= mesHoy : c.desde <= hoy);
 
   const acc = cs.map(() => ({ ingresos: 0, egresos: 0 }));
   const primero = cs[0].desde;
   const ultimo = cs[cs.length - 1].hasta;
-  for (const t of movs) {
-    if (t.moneda !== moneda || t.fecha < primero || t.fecha > ultimo) continue;
-    const i = cs.findIndex((c) => c.desde <= t.fecha && t.fecha <= c.hasta);
+  const cubo = (f: { moneda: string; fecha: string }) =>
+    f.moneda !== moneda || f.fecha < primero || f.fecha > ultimo
+      ? -1
+      : cs.findIndex((c) => c.desde <= f.fecha && f.fecha <= c.hasta);
+  const sumar = (i: number, tipo: Mov['tipo'], monto: number) => {
+    if (tipo === 'ingreso') acc[i].ingresos += monto;
+    else acc[i].egresos += monto;
+  };
+
+  for (const f of pagos ?? flujosDe(movs)) {
+    const i = cubo(f);
     if (i < 0) continue;
     if (cs[i].esMes && cs[i].clave > mesHoy) continue; // eso lo pone la proyección
-    if (t.tipo === 'ingreso') acc[i].ingresos += t.monto;
-    else acc[i].egresos += t.monto;
+    sumar(i, f.tipo, f.monto);
+  }
+  for (const p of movs.map(pendienteDe)) {
+    const i = cubo(p);
+    if (i < 0 || esReal(cs[i]) || cs[i].esMes) continue;
+    sumar(i, p.tipo, p.monto);
   }
 
   return cs.map((c, i) => {
@@ -253,7 +296,7 @@ export function serieBarras({
       sub: c.sub,
       ingresos,
       egresos,
-      real: c.esMes ? c.clave <= mesHoy : c.desde <= hoy,
+      real: esReal(c),
       actual: c.desde <= hoy && hoy <= c.hasta,
       elegido: g !== 'anio' && g !== 'mes' && c.desde <= elegido.desde && elegido.hasta <= c.hasta,
       marca: c.marca,
@@ -269,27 +312,30 @@ export type TotalCategoria = { id: string; monto: number; porcentaje: number };
 
 /**
  * Monto PAGADO (o cobrado, si `tipo` es 'ingreso') por categoría dentro del
- * rango, de mayor a menor. Lo pendiente se devuelve aparte: es plata que se
- * debe o que falta cobrar, no plata que ya se movió.
+ * rango, de mayor a menor: los pagos hechos en el rango, parciales incluidos.
+ * Lo pendiente (el saldo de lo que vence en el rango) se devuelve aparte: es
+ * plata que se debe o que falta cobrar, no plata que ya se movió.
  */
 export function gastosPorCategoria(
   movs: Mov[],
   r: Rango,
   moneda = 'ARS',
-  tipo: 'gasto' | 'ingreso' = 'gasto'
+  tipo: 'gasto' | 'ingreso' = 'gasto',
+  pagos?: Flujo[]
 ): { categorias: TotalCategoria[]; total: number; pendiente: number } {
   const m: Record<string, number> = {};
   let total = 0;
   let pendiente = 0;
-  for (const t of movs) {
-    if (t.tipo !== tipo || t.moneda !== moneda || t.fecha < r.desde || t.fecha > r.hasta) continue;
-    if (t.estado !== 'pagado') {
-      pendiente += t.monto;
-      continue;
-    }
-    const id = t.categoria_id ?? 'otros';
-    m[id] = (m[id] ?? 0) + t.monto;
-    total += t.monto;
+  const enRango = (f: { tipo: string; moneda: string; fecha: string }) =>
+    f.tipo === tipo && f.moneda === moneda && f.fecha >= r.desde && f.fecha <= r.hasta;
+  for (const f of pagos ?? flujosDe(movs)) {
+    if (!enRango(f)) continue;
+    const id = f.categoria_id ?? 'otros';
+    m[id] = (m[id] ?? 0) + f.monto;
+    total += f.monto;
+  }
+  for (const p of movs.map(pendienteDe)) {
+    if (enRango(p)) pendiente += p.monto;
   }
   const categorias = Object.entries(m)
     .sort((a, b) => b[1] - a[1])

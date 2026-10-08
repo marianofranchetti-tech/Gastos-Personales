@@ -6,13 +6,14 @@ import {
   FilaRemota,
   Remoto,
   sincronizar,
+  TablaInexistente,
   TablaSync,
   vaciarLocal,
 } from './motor';
 import { registrarEvento } from './eventos';
 import { HORA_GENERADA } from '../db/schema';
 import { materializarRecurrentes } from '../db/materializar';
-import { alternarEstado, eliminarTransaccion, limpiarDatos } from '../db/queries';
+import { alternarEstado, eliminarPago, eliminarTransaccion, getPagos, limpiarDatos, registrarPago } from '../db/queries';
 import { baseVacia, insertarRegla, insertarTx } from '../test/fixtures';
 import type { DbFake } from '../test/dbFake';
 
@@ -24,6 +25,7 @@ class NubeFalsa implements Remoto {
   tablas: Record<TablaSync, Map<string, FilaRemota>> = {
     reglas_recurrentes: new Map(),
     transacciones: new Map(),
+    pagos: new Map(),
     precios: new Map(),
   };
   eventos: EventoRemoto[] = [];
@@ -304,5 +306,70 @@ describe('cuenta y dispositivo', () => {
     expect(nube.eventos[0]).toMatchObject({ user_id: USUARIO, tipo: 'movimiento_creado', props: { tipo: 'gasto' } });
     expect(nube.eventos[0].dispositivo_id).toBeTruthy();
     expect(await filas(a, 'SELECT id FROM eventos_cola')).toEqual([]);
+  });
+});
+
+describe('pagos parciales', () => {
+  const vistaPagos = (db: DbFake) =>
+    filas(db, 'SELECT p.monto, p.fecha, p.nota, t.uuid AS tx FROM pagos p JOIN transacciones t ON t.id = p.transaccion_id ORDER BY p.fecha');
+
+  it('un pago parcial viaja con su concepto y deja el mismo saldo en el otro', async () => {
+    const id = await insertarTx(a, { monto: 100 });
+    await registrarPago(a, id, { monto: 40, fecha: '2026-09-05', nota: 'seña' });
+    await sincronizar(a, nube, USUARIO);
+    await sincronizar(b, nube, USUARIO);
+
+    expect(await vistaPagos(b)).toEqual(await vistaPagos(a));
+    expect(nube.vivas('pagos')[0]).toMatchObject({ monto: 40, fecha: '2026-09-05', nota: 'seña' });
+    const [t] = await filas(b, 'SELECT estado FROM transacciones');
+    expect(t.estado).toBe('pendiente');
+  });
+
+  it('completar el pago en un dispositivo lo deja pagado en el otro; borrar un pago también viaja', async () => {
+    const id = await insertarTx(a, { monto: 100 });
+    await registrarPago(a, id, { monto: 40 });
+    await sincronizar(a, nube, USUARIO);
+    await sincronizar(b, nube, USUARIO);
+
+    const [enB] = await filas(b, 'SELECT id FROM transacciones');
+    await espera();
+    await registrarPago(b, enB.id, { monto: 60 });
+    await sincronizar(b, nube, USUARIO);
+    await sincronizar(a, nube, USUARIO);
+    expect((await filas(a, 'SELECT estado FROM transacciones'))[0].estado).toBe('pagado');
+
+    const pago60 = (await getPagos(a)).find((p) => p.monto === 60)!;
+    await espera();
+    await eliminarPago(a, pago60.id);
+    await sincronizar(a, nube, USUARIO);
+    await sincronizar(b, nube, USUARIO);
+    expect((await filas(b, 'SELECT monto FROM pagos')).map((p) => p.monto)).toEqual([40]);
+    expect((await filas(b, 'SELECT estado FROM transacciones'))[0].estado).toBe('pendiente');
+  });
+
+  it('si la nube todavía no tiene la tabla de pagos, lo demás sincroniza y los pagos esperan', async () => {
+    const original = { traer: nube.traer.bind(nube), subir: nube.subir.bind(nube) };
+    nube.traer = async (tabla, desde, limite) => {
+      if (tabla === 'pagos') throw new TablaInexistente('pagos');
+      return original.traer(tabla, desde, limite);
+    };
+    nube.subir = async (tabla, f) => {
+      if (tabla === 'pagos') throw new TablaInexistente('pagos');
+      return original.subir(tabla, f);
+    };
+
+    const id = await insertarTx(a, { monto: 100 });
+    await registrarPago(a, id, { monto: 40 });
+    await sincronizar(a, nube, USUARIO);
+
+    expect(nube.vivas('transacciones')).toHaveLength(1);
+    expect(await filas(a, 'SELECT tabla FROM sync_cola')).toEqual([{ tabla: 'pagos' }]);
+
+    // Se corre la migración en la nube: a la vuelta siguiente sube.
+    nube.traer = original.traer;
+    nube.subir = original.subir;
+    await sincronizar(a, nube, USUARIO);
+    expect(nube.vivas('pagos')).toHaveLength(1);
+    expect(await cantidadPendientes(a)).toBe(0);
   });
 });

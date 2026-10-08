@@ -8,7 +8,14 @@
 import { diaSemanaISO, finDeMesISO, sumarDiasISO } from './fechasRecurrentes';
 import { lunesDe } from './periodo';
 
-export type EstadoVista = 'pagado' | 'vencido' | 'pendiente';
+/**
+ * Estado derivado de lo pagado y la fecha:
+ * - pagado:    sin saldo.
+ * - vencido:   con saldo y la fecha ya pasó (aunque tenga pagos parciales).
+ * - parcial:   con algún pago y saldo, todavía en fecha.
+ * - pendiente: sin pagos, todavía en fecha.
+ */
+export type EstadoVista = 'pagado' | 'parcial' | 'vencido' | 'pendiente';
 export type FiltroEstado = 'todos' | EstadoVista;
 
 export type MovCal = {
@@ -19,13 +26,51 @@ export type MovCal = {
   fecha: string;
   venc: string | null;
   estado: string;
+  /** Suma de pagos. Si falta, se deduce de `estado` (todo o nada). */
+  pagado?: number;
 };
+
+/** Medio centavo: los montos son REAL y una resta puede dejar 0,0000001. */
+const CENTAVO = 0.005;
 
 export const fechaMov = (t: Pick<MovCal, 'fecha' | 'venc'>) => t.venc ?? t.fecha;
 
+export const pagadoDe = (t: Pick<MovCal, 'monto' | 'estado' | 'pagado'>) =>
+  t.pagado ?? (t.estado === 'pagado' ? t.monto : 0);
+
+export const saldoDe = (t: Pick<MovCal, 'monto' | 'estado' | 'pagado'>) => {
+  const s = t.monto - pagadoDe(t);
+  return s > CENTAVO ? s : 0;
+};
+
 export function estadoVista(t: MovCal, hoy: string): EstadoVista {
-  if (t.estado === 'pagado') return 'pagado';
-  return fechaMov(t) < hoy ? 'vencido' : 'pendiente';
+  if (saldoDe(t) === 0) return 'pagado';
+  if (fechaMov(t) < hoy) return 'vencido';
+  return pagadoDe(t) > CENTAVO ? 'parcial' : 'pendiente';
+}
+
+/**
+ * Si un movimiento aparece bajo un filtro. Cada filtro muestra los que aportan
+ * a su total, así lo que se ve y lo que se suma coinciden:
+ * - Pendientes / Vencidos: los que tienen saldo, según su fecha.
+ * - Pagados: los que tienen algo pagado, incluidos los parciales.
+ * - Parciales: algo pagado y algo de saldo.
+ */
+export function enFiltro(t: MovCal, filtro: FiltroEstado, hoy: string): boolean {
+  const pagado = pagadoDe(t) > CENTAVO;
+  const saldo = saldoDe(t) > 0;
+  switch (filtro) {
+    case 'todos':
+      return true;
+    case 'pagado':
+      return pagado;
+    case 'parcial':
+      return pagado && saldo;
+    case 'pendiente':
+      return saldo && fechaMov(t) >= hoy;
+    case 'vencido':
+      return saldo && fechaMov(t) < hoy;
+  }
 }
 
 export type Semana = { desde: string; hasta: string; dias: string[] };
@@ -50,11 +95,20 @@ export function sumarMes(mes: string, delta: number): string {
 
 export type Totales = Record<EstadoVista, number> & { todos: number };
 
+/**
+ * Totales del mes. Pendientes y Vencidos suman SALDO; Pagados, lo efectivamente
+ * pagado (parciales incluidos). Así Todos = Pendientes + Vencidos + Pagados.
+ * Parciales es un corte aparte: el saldo que les falta a los pagados a medias.
+ */
 export function totales<T extends MovCal>(items: T[], hoy: string): Totales {
-  const r: Totales = { pagado: 0, vencido: 0, pendiente: 0, todos: 0 };
+  const r: Totales = { pagado: 0, parcial: 0, vencido: 0, pendiente: 0, todos: 0 };
   for (const t of items) {
-    r[estadoVista(t, hoy)] += t.monto;
+    const saldo = saldoDe(t);
+    const pagado = t.monto - saldo;
     r.todos += t.monto;
+    r.pagado += pagado;
+    if (saldo > 0) r[fechaMov(t) < hoy ? 'vencido' : 'pendiente'] += saldo;
+    if (saldo > 0 && pagado > CENTAVO) r.parcial += saldo;
   }
   return r;
 }
@@ -79,17 +133,45 @@ export function filtrarMovs<T extends MovCal>(
     const f = fechaMov(t);
     if (f < desde || f > hasta) return false;
     if (concepto && t.nombre !== concepto) return false;
-    if (estado !== 'todos' && estadoVista(t, hoy) !== estado) return false;
-    return true;
+    return enFiltro(t, estado, hoy);
   });
 }
 
-/** Agrupa por día, ordenado: primero lo pendiente, después por monto. */
+export type Repetido = { tipo: string; nombre: string; mes: string; cantidad: number; total: number };
+
+/**
+ * Conceptos que aparecen más de una vez con el mismo nombre en un mismo mes
+ * (por fecha de vencimiento): típicamente una deuda cargada en partes
+ * ("EPEC · 2"). Solo lectura: no decide si son duplicados ni los toca.
+ *
+ * Las ocurrencias de reglas semanales o diarias no cuentan: que se repitan en
+ * el mes es justamente lo que tienen que hacer.
+ */
+export function conceptosRepetidos<T extends MovCal & { tipo: string; periodo?: string | null }>(
+  items: T[]
+): Repetido[] {
+  const m = new Map<string, Repetido>();
+  for (const t of items) {
+    if (t.periodo === 'semanal' || t.periodo === 'diario') continue;
+    const mes = fechaMov(t).slice(0, 7);
+    const clave = `${t.tipo}|${t.nombre}|${mes}`;
+    const r = m.get(clave) ?? { tipo: t.tipo, nombre: t.nombre, mes, cantidad: 0, total: 0 };
+    r.cantidad += 1;
+    r.total += t.monto;
+    m.set(clave, r);
+  }
+  return [...m.values()]
+    .filter((r) => r.cantidad > 1)
+    .sort((a, b) => b.mes.localeCompare(a.mes) || a.tipo.localeCompare(b.tipo) || a.nombre.localeCompare(b.nombre));
+}
+
+/** Agrupa por día, ordenado: primero lo que tiene saldo, después por monto. */
 export function porDia<T extends MovCal>(items: T[]): Record<string, T[]> {
   const r: Record<string, T[]> = {};
   for (const t of items) (r[fechaMov(t)] ??= []).push(t);
+  const saldado = (t: T) => Number(saldoDe(t) === 0);
   for (const k of Object.keys(r)) {
-    r[k].sort((a, b) => Number(a.estado === 'pagado') - Number(b.estado === 'pagado') || b.monto - a.monto);
+    r[k].sort((a, b) => saldado(a) - saldado(b) || b.monto - a.monto);
   }
   return r;
 }

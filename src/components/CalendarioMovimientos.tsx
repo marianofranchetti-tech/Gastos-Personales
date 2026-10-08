@@ -6,6 +6,7 @@ import { TipoTx } from '../lib/categorias';
 import {
   conceptos,
   diaLargo,
+  enFiltro,
   EstadoVista,
   estadoVista,
   fechaMov,
@@ -22,7 +23,7 @@ import { fmt } from '../lib/format';
 import { useLayout } from '../lib/layout';
 import { T } from '../lib/theme';
 import { Fila } from './Fila';
-import { ModalOpciones } from './ModalOpciones';
+import { BarraPagado, ModalPagos } from './Pagos';
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -32,7 +33,10 @@ const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
  * - Cada movimiento cae en su día de vencimiento (o su fecha si no vence).
  * - Las flechas recorren meses hacia atrás y hacia adelante: lo ya pagado de
  *   meses anteriores se ve igual que lo que viene.
- * - Los totales del mes son también el filtro por estado.
+ * - Los totales del mes son también el filtro por estado. Pendientes y
+ *   Vencidos suman saldo; Pagados, lo pagado (parciales incluidos).
+ * - Cada concepto es UNA tarjeta en su vencimiento: los pagos parciales no la
+ *   dividen ni la mueven. El ✓ abre sus pagos (registrar, historial, borrar).
  * - Los chips de conceptos filtran un gasto puntual; el filtro se mantiene al
  *   cambiar de mes, para seguir "el alquiler" mes a mes.
  *
@@ -50,7 +54,6 @@ const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 export function CalendarioMovimientos({
   items,
   tipo,
-  onToggle,
   onEdit,
   mes: mesControlado,
   onMover,
@@ -58,7 +61,6 @@ export function CalendarioMovimientos({
 }: {
   items: TransaccionVista[];
   tipo: TipoTx;
-  onToggle: (id: number) => void;
   onEdit?: (t: TransaccionVista) => void;
   /** 'YYYY-MM'. Si viene, el mes lo controla la pantalla. */
   mes?: string;
@@ -72,7 +74,8 @@ export function CalendarioMovimientos({
   const [mesPropio, setMes] = useState(hoy.slice(0, 7));
   const mes = mesControlado ?? mesPropio;
   const [vista, setVista] = useState<'calendario' | 'lista'>(pc ? 'calendario' : 'lista');
-  const [confirmar, setConfirmar] = useState<TransaccionVista | null>(null);
+  // Concepto con la hoja de pagos abierta.
+  const [pagando, setPagando] = useState<TransaccionVista | null>(null);
   const dnd = useArrastre(onMover, onArrastrando);
   // Con el dedo no se arrastra: se elige la tarjeta (pulsación larga) y después
   // se toca el día de destino. Arrastrar en celdas de 50 px peleándose con el
@@ -99,7 +102,7 @@ export function CalendarioMovimientos({
     [delMes, concepto, hoy]
   );
   const listaConceptos = useMemo(
-    () => conceptos(estado === 'todos' ? delMes : delMes.filter((t) => estadoVista(t, hoy) === estado)),
+    () => conceptos(delMes.filter((t) => enFiltro(t, estado, hoy))),
     [delMes, estado, hoy]
   );
   const visibles = useMemo(
@@ -110,12 +113,18 @@ export function CalendarioMovimientos({
   const semanas = useMemo(() => semanasDelMes(mes), [mes]);
 
   const etiquetaMes = etiquetaPeriodo('mes', desde, hoy);
-  const nombres = {
+  const nombres: Record<EstadoVista, string> = {
     pagado: tipo === 'gasto' ? 'Pagados' : 'Cobrados',
+    parcial: 'Parciales',
     pendiente: 'Pendientes',
     vencido: tipo === 'gasto' ? 'Vencidos' : 'Atrasados',
   };
-  const colorEstado: Record<EstadoVista, string> = { pagado: T.teal, pendiente: T.warn, vencido: T.danger };
+  const colorEstado: Record<EstadoVista, string> = {
+    pagado: T.teal,
+    parcial: T.primaryLight,
+    pendiente: T.warn,
+    vencido: T.danger,
+  };
 
   return (
     <View style={{ gap: 10 }} ref={dnd.raiz} collapsable={false}>
@@ -176,7 +185,8 @@ export function CalendarioMovimientos({
           monto={fmt(tot.todos)}
           onPress={() => setEstado('todos')}
         />
-        {(['pendiente', 'vencido', 'pagado'] as EstadoVista[]).map((e) => (
+        {/* Parciales muestra lo que les falta (su saldo). */}
+        {(['pendiente', 'vencido', 'parcial', 'pagado'] as EstadoVista[]).map((e) => (
           <PillEstado
             key={e}
             on={estado === e}
@@ -309,7 +319,7 @@ export function CalendarioMovimientos({
                             color={colorEstado[estadoVista(t, hoy)]}
                             compacta={!pc}
                             onEdit={onEdit}
-                            onToggle={() => setConfirmar(t)}
+                            onToggle={() => setPagando(t)}
                             arrastrando={dnd.arrastre?.t.id === t.id}
                             onIniciarArrastre={onMover ? dnd.iniciar : undefined}
                             onMoverArrastre={dnd.mover}
@@ -343,7 +353,7 @@ export function CalendarioMovimientos({
                   {d === hoy ? `Hoy · ${diaLargo(d)}` : diaLargo(d)}
                 </Text>
                 {dias[d].map((t) => (
-                  <Fila key={t.id} t={t} onToggle={() => setConfirmar(t)} onEdit={onEdit} />
+                  <Fila key={t.id} t={t} onToggle={() => setPagando(t)} onEdit={onEdit} />
                 ))}
               </View>
             ))}
@@ -377,38 +387,7 @@ export function CalendarioMovimientos({
         </Animated.View>
       )}
 
-      {confirmar && (
-        <ModalOpciones
-          titulo={
-            confirmar.estado === 'pagado'
-              ? '¿Volver a pendiente?'
-              : tipo === 'gasto'
-                ? '¿Marcar como pagado?'
-                : '¿Marcar como cobrado?'
-          }
-          mensaje={`${confirmar.nombre} · ${fmt(confirmar.monto, confirmar.moneda)} · ${diaLargo(fechaMov(confirmar))}`}
-          opciones={[
-            {
-              id: 'si',
-              label:
-                confirmar.estado === 'pagado'
-                  ? 'Sí, pasar a pendiente'
-                  : tipo === 'gasto'
-                    ? 'Sí, marcar como pagado'
-                    : 'Sí, marcar como cobrado',
-              detalle:
-                confirmar.estado === 'pagado'
-                  ? 'Se borra la fecha de pago registrada'
-                  : 'Se registra con fecha de hoy',
-            },
-          ]}
-          onElegir={() => {
-            onToggle(confirmar.id);
-            setConfirmar(null);
-          }}
-          onCancelar={() => setConfirmar(null)}
-        />
-      )}
+      {pagando && <ModalPagos id={pagando.id} onClose={() => setPagando(null)} />}
     </View>
   );
 }
@@ -520,6 +499,8 @@ function MiniTarjeta({
   onTocarEnModo?: () => void;
 }) {
   const pagado = t.estado === 'pagado';
+  // Pagado a medias: "pagado X de Y" y la barra. La tarjeta sigue siendo una.
+  const parcial = t.pagado > 0.005 && t.saldo > 0;
   const ref = useRef<View>(null);
   // Arrastre directo con mouse/trackpad (PanResponder).
   const arrastrable = !!onIniciarArrastre && punteroFino;
@@ -682,7 +663,7 @@ function MiniTarjeta({
           {!compacta && (
             <Pressable
               onPress={onToggle}
-              accessibilityLabel={pagado ? 'Marcar como pendiente' : 'Marcar como pagado'}
+              accessibilityLabel={t.tipo === 'gasto' ? 'Pagos de este gasto' : 'Cobros de este ingreso'}
               hitSlop={6}
               style={{
                 width: 12,
@@ -691,8 +672,11 @@ function MiniTarjeta({
                 borderWidth: 1.5,
                 borderColor: color,
                 backgroundColor: pagado ? color : 'transparent',
+                overflow: 'hidden',
               }}
-            />
+            >
+              {parcial && <View style={{ width: '50%', height: '100%', backgroundColor: color }} />}
+            </Pressable>
           )}
           <Text numberOfLines={1} selectable={false} className="flex-1" style={{ color: T.text, fontSize: compacta ? 10 : 12 }}>
             {t.nombre}
@@ -701,6 +685,16 @@ function MiniTarjeta({
         <Text numberOfLines={1} selectable={false} style={{ color: T.text, fontSize: compacta ? 10 : 12, fontWeight: '600' }}>
           {compacta ? fmtCorto(t.monto) : fmt(t.monto, t.moneda)}
         </Text>
+        {parcial && (
+          <View style={{ gap: 2, marginTop: 2 }}>
+            {!compacta && (
+              <Text numberOfLines={1} selectable={false} style={{ color: T.muted, fontSize: 10 }}>
+                {t.tipo === 'gasto' ? 'pagado' : 'cobrado'} {fmtCorto(t.pagado)} de {fmtCorto(t.monto)}
+              </Text>
+            )}
+            <BarraPagado pagado={t.pagado} monto={t.monto} alto={3} color={color} />
+          </View>
+        )}
       </Pressable>
     </View>
   );
