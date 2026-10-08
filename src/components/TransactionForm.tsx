@@ -15,6 +15,9 @@ import { PanelPagos } from './Pagos';
  * Alta y edición de movimientos. Con `inicial` entra en modo edición: precarga
  * los campos, cambia los textos y habilita eliminar.
  *
+ * Una sola fecha: el vencimiento (en ingresos, el día en que entra). Es la
+ * que ubica al concepto en el calendario, y se guarda también como `fecha`.
+ *
  * En edición, el estado no se elige: sale de los pagos registrados, que se
  * ven y se cargan acá mismo (pagos parciales incluidos).
  *
@@ -42,19 +45,16 @@ export function TransactionForm({
   const [nombre, setNombre] = useState(inicial?.nombre ?? '');
   const [monto, setMonto] = useState(inicial ? String(inicial.monto) : '');
   const [cat, setCat] = useState(inicial?.categoria_id ?? (esG ? 'comida' : 'salario'));
-  const [fecha, setFecha] = useState(inicial?.fecha ?? iso(hoy()));
+  const [fecha, setFecha] = useState(inicial?.venc ?? inicial?.fecha ?? iso(hoy()));
   const [rec, setRec] = useState(!!inicial?.rec);
   const [periodo, setPeriodo] = useState<Periodo>(inicial?.periodo ?? 'mensual');
   const [fijo, setFijo] = useState(inicial ? inicial.fijo !== 0 : true);
   const [estado, setEstado] = useState<Estado>(inicial?.estado ?? 'pendiente');
-  const [venc, setVenc] = useState(inicial?.venc ?? inicial?.fecha ?? iso(hoy()));
   const [preguntando, setPreguntando] = useState<'guardar' | 'eliminar' | null>(null);
 
   const cats = esG ? CATS : CATS_ING;
   const fechaValida = !!fechaISO(fecha);
-  const pideVenc = esG || rec;
-  const vencValido = !pideVenc || !!fechaISO(venc);
-  const ok = nombre.trim().length > 0 && Number(monto) > 0 && fechaValida && vencValido;
+  const ok = nombre.trim().length > 0 && Number(monto) > 0 && fechaValida;
 
   const datos = (): NuevaTransaccion => ({
     tipo,
@@ -67,7 +67,7 @@ export function TransactionForm({
     fijo: esG ? fijo : undefined,
     // Editando, el estado lo deciden los pagos: no se manda.
     estado: editando ? undefined : estado,
-    venc: esG || rec ? venc : undefined,
+    venc: fecha,
   });
 
   const confirmar = (alcance: Alcance) => {
@@ -156,7 +156,7 @@ export function TransactionForm({
                 })}
               </View>
             </Field>
-            <Field label={esG ? 'Fecha del gasto' : 'Fecha del ingreso'}>
+            <Field label={esG ? 'Fecha de vencimiento' : 'Fecha del ingreso'}>
               <TextInput
                 style={[inputStyle, !fechaValida && { borderColor: T.danger }]}
                 placeholder="AAAA-MM-DD"
@@ -202,15 +202,6 @@ export function TransactionForm({
             )}
             {esG && (
               <>
-                <Field label="Fecha de vencimiento del pago">
-                  <TextInput
-                    style={[inputStyle, !vencValido && { borderColor: T.danger }]}
-                    placeholder="AAAA-MM-DD"
-                    placeholderTextColor={T.muted}
-                    value={venc}
-                    onChangeText={setVenc}
-                  />
-                </Field>
                 {!editando && (
                   <Field label="Estado del pago">
                     <View className="flex-row gap-2">
@@ -227,17 +218,6 @@ export function TransactionForm({
             )}
             {!esG && (
               <>
-                {rec && (
-                  <Field label="Fecha esperada del ingreso">
-                    <TextInput
-                      style={[inputStyle, !vencValido && { borderColor: T.danger }]}
-                      placeholder="AAAA-MM-DD"
-                      placeholderTextColor={T.muted}
-                      value={venc}
-                      onChangeText={setVenc}
-                    />
-                  </Field>
-                )}
                 {!editando && (
                   <Field label="Estado del cobro">
                     <View className="flex-row gap-2">
